@@ -338,7 +338,7 @@ export function roundToMultiple(L, m, min, max) {
 function surgeryDecoderConfig(sector) {
     const xSector = sector === 'x';
     return {
-        name: `lattice surgery rough merge (hierarchical, ${sector.toUpperCase()}-type stabilizer sector)`,
+        name: `lattice surgery rough merge (phenomenological, hierarchical, ${sector.toUpperCase()}-type stabilizer sector)`,
         title: `lattice surgery on the hierarchical surface-code decoder, ${sector.toUpperCase()}-type stabilizer sector`,
         description: xSector
             ? 'Two <span class="nobreak"><i>L</i> × <i>L</i></span> surface-code patches sit side by side, with a vertical rough seam at their condensing boundaries. In the <i>X</i>-type stabilizer sector, merging adds a column of seam checks: the first measured outcomes initialize a seam frame and produce no detector events, while later rounds use ordinary measurement differences. The seam becomes non-absorbing slice by slice after delays proportional to each slice’s update period; an absorbing seam above the final slice collects the remaining seam defects before the frame and surgery outcome are committed. Splitting measures out the seam qubits, removes the seam checks and their detector events, and restores an absorbing seam with the corresponding slice delays. Each patch retains its own hierarchy, and coarse corrections across the seam expand through the physical seam qubits. Operations are separated by at least <span class="nobreak">2<i>L</i></span> steps and wait for the previous introduction to finish. The state card reports the seam geometry, the next permitted operation, the committed outcome and its check against the hidden outcome, rejection, and the logical indicators.'
@@ -381,7 +381,7 @@ function protocolDecoderConfig(kind) {
     const injection = kind === 'inject';
     const protocol = injection ? 'injection' : 'preparation';
     return {
-        name: `surface code state ${protocol} (hierarchical)`,
+        name: `surface code state ${protocol} (phenomenological, hierarchical)`,
         title: `hierarchical surface-code decoder during state ${protocol}`,
         description: injection
             ? 'In the <i>X</i>-type stabilizer sector diagnostic, |+⟩ is injected at the upper-left <i>q</i><sub>⋆</sub>, with a rising absorbing frame region in the upper-right half. Absorptions flip <i>ψ</i>; splitting precedes upward drift and ordinary decoding. Deterministic-site expiry rejects and restarts. After the hover, <i>ψ</i> is committed. After stop noise and drain, frame consistency compares residual syndrome with <i>ψ</i> on frame checks and zero elsewhere; the <span class="nobreak">X̄ = +1</span> readout proxy checks left-column parity adjusted by pre-round errors. Both proxy the paper’s cluster-based definitions.'
