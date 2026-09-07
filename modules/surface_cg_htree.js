@@ -410,6 +410,13 @@ export class SurfaceCGHTreeDecoder extends SurfaceCGStreamingDecoder {
         });
     }
 
+    // Protocol presentations may supply a different model while retaining
+    // this exact movement timeline. Ordinary instances still call the
+    // same streaming update with the same observer.
+    _advanceDecoder(onMove) {
+        return super.step(onMove);
+    }
+
     step(stepIntervalMs = HTREE_PULSE_MAX_MS) {
         finishedPresentation.delete(this);
         rewoundPresentation.delete(this);
@@ -426,7 +433,7 @@ export class SurfaceCGHTreeDecoder extends SurfaceCGStreamingDecoder {
         // A final map diff loses moves whose endpoints are replaced by noise,
         // annihilate, or move again within this same update.
         const moves = [];
-        const result = super.step(move => moves.push(move));
+        const result = this._advanceDecoder(move => moves.push(move));
         // Keep every endpoint for this intake step, including even-parity
         // arrivals. These never replay a child-to-parent within-step move.
         presentation.arrivedPromotions = arrivals;
@@ -722,8 +729,8 @@ export class SurfaceCGHTreeDecoder extends SurfaceCGStreamingDecoder {
         const showSyndrome = options.showSyndrome !== false;
         const showErrors = options.showErrors !== false;
         const showGrid = options.showGrid !== false;
-        const { panels, lattice, cellW, cellH, glyphSide, levels } =
-            this._layout(canvasWidth, canvasHeight, options.overlayRects);
+        const layout = this._layout(canvasWidth, canvasHeight, options.overlayRects);
+        const { panels, lattice, cellW, cellH, glyphSide, levels } = layout;
         const panel = panels[0];
         const now = performance.now();
         const highlights = showSyndrome ? this.getMoveHighlights(now) : [];
@@ -736,7 +743,9 @@ export class SurfaceCGHTreeDecoder extends SurfaceCGStreamingDecoder {
         ctx.save();
         ctx.translate(panel.left, panel.top);
 
-        if (showGrid) {
+        this._drawProtocolRegions?.(ctx, layout);
+
+        if (showGrid && !this._drawProtocolGrid?.(ctx, layout)) {
             // Streets cross every site row and column, clipped to the full patch.
             ctx.save();
             ctx.beginPath(); ctx.rect(0, 0, panel.w, panel.h); ctx.clip();
@@ -800,7 +809,8 @@ export class SurfaceCGHTreeDecoder extends SurfaceCGStreamingDecoder {
             for (const { x, y, rx, ry } of levels[k].sites) {
                 const mask = (sl.m[0][rx][ry] ? 1 : 0)
                     | (sl.m[1][rx][ry] ? 2 : 0) | (sl.m[2][rx][ry] ? 4 : 0);
-                drawSiteGlyph(ctx, x, y, glyphSide, colors, showMessages ? mask : 0);
+                drawSiteGlyph(ctx, x, y, glyphSide,
+                    this._getProtocolGlyphColors?.(k, rx, ry) ?? colors, showMessages ? mask : 0);
             }
         }
 

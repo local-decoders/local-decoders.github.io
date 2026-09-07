@@ -28,7 +28,14 @@
                     <option value="surface2">surface code (code capacity)</option>
                     <option value="surface_streaming_3d">surface code (phenomenological)</option>
                     <option value="surface_cg_htree" selected>surface code (phenomenological, hierarchical)</option>
+                    <option value="surface_cg_surgery_x">lattice surgery (hierarchical, rough merge, X-type stabilizer sector)</option>
+                    <option value="surface_cg_surgery_z">lattice surgery (hierarchical, rough merge, Z-type stabilizer sector)</option>
+                    <option value="surface_cg_prep">state preparation (hierarchical surface code)</option>
+                    <option value="surface_cg_inject">state injection (hierarchical surface code)</option>
                     <option value="haah">Haah's code (code capacity)</option>
+                    <option value="haah_streaming">Haah's code (phenomenological)</option>
+                    <option value="xcube_lineon">X-cube model (code capacity, lineons)</option>
+                    <option value="xcube_fracton">X-cube model (code capacity, fractons)</option>
                 </select>
             </div>
 
@@ -61,6 +68,8 @@
                         <button id="play-fwd-btn" class="btn btn-secondary" aria-label="forward play" title="forward play">▶▶</button>
                     </div>
                     <button id="noise-btn" class="btn btn-secondary" style="display: none; grid-column: 1 / -1;" disabled>stop noise</button>
+                    <button id="merge-btn" class="btn btn-secondary" style="display: none;" disabled>merge</button>
+                    <button id="split-btn" class="btn btn-secondary" style="display: none;" disabled>split</button>
                     <button id="toggle-3d-btn" class="btn btn-secondary" style="display: none;">Enable 3D</button>
                 </div>
             </div>
@@ -232,10 +241,10 @@
                                 <span>defects:</span>
                                 <span id="syndrome-count">0</span>
                             </div>
-                            <!-- TASK 4db: "errors" row removed from the state card
-                                 (getErrorCount() stays on every decoder for the
-                                 test harnesses; it's just no longer surfaced
-                                 here as a live number). -->
+                            <div class="stat-row" id="errors-row" style="display: none;">
+                                <span>errors:</span>
+                                <span id="error-count">0</span>
+                            </div>
                             <div class="stat-row" id="system-defects-row" style="display: none;">
                                 <span>system defects:</span>
                                 <span id="system-defects-count">0</span>
@@ -243,6 +252,34 @@
                             <div class="stat-row" id="decoder-defects-row" style="display: none;">
                                 <span>decoder defects:</span>
                                 <span id="decoder-defects-count">0</span>
+                            </div>
+                            <div class="stat-row" id="seam-state-row" style="display: none;">
+                                <span>seam:</span>
+                                <span id="seam-state-value">split</span>
+                            </div>
+                            <div class="stat-row" id="next-surgery-row" style="display: none;">
+                                <span>next surgery:</span>
+                                <span id="next-surgery-value">step 32</span>
+                            </div>
+                            <div class="stat-row" id="seam-frame-row" style="display: none;">
+                                <span>seam frame:</span>
+                                <span id="seam-frame-value">not committed</span>
+                            </div>
+                            <div class="stat-row" id="surgery-outcome-row" style="display: none;">
+                                <span>surgery outcome:</span>
+                                <span id="surgery-outcome-value">pending</span>
+                            </div>
+                            <div class="stat-row" id="outcome-check-row" style="display: none;">
+                                <span>outcome check:</span>
+                                <span id="outcome-check-value">pending</span>
+                            </div>
+                            <div class="stat-row" id="surgery-rejected-row" style="display: none;">
+                                <span>surgery:</span>
+                                <span id="surgery-rejected-value">accepted</span>
+                            </div>
+                            <div class="stat-row" id="patch-logical-row" style="display: none;">
+                                <span>logical indicators:</span>
+                                <span id="patch-logical-value">A: 0, B: 0</span>
                             </div>
                             <div class="stat-row" id="status-row">
                                 <span>status:</span>

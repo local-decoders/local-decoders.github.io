@@ -10,6 +10,8 @@
 // ever gets selected.
 import { DESCRIPTION_TOP_CSS } from '../modules/repetition2.js';
 import { captureDecoderState, restoreDecoderState } from '../modules/step_history.js';
+import * as HaahStreamingDefaults from '../modules/haah_streaming_defaults.js';
+import { SURGERY_DEFAULT_SIZE, SURGERY_MAX_SIZE } from '../modules/surface_cg_surgery.js';
 
 // TASK 4do: site-wide kill switch for asynchronous ("uncoordinated")
 // mode, without removing the capability itself -- every decoder module
@@ -62,9 +64,15 @@ export const TRANSPORT_BUTTON_HEIGHT_PX = 24;
 // Narrow presentation only; CSS uses the same 1024px / 640px breakpoints.
 export const NARROW_LAYOUT_MAX_WIDTH = 1024;
 export const NARROW_CANVAS_MAX_VH = 0.85;
+export const NARROW_STABLE_VIEWPORT_HEIGHT = true;
 export const NARROW_CANVAS_ASPECT = 1.5;
 export const NARROW_CODE_CAPACITY_CANVAS_ASPECT = 1.1;
 export const NARROW_HIERARCHICAL_CANVAS_ASPECT = 2.25;
+export const SURGERY_DEFAULT_SLICES = 3;
+export const SURFACE_CG_PROTOCOL_DEFAULT_SLICES = 3;
+export const SURGERY_MIN_SIZE = 3;
+export const SURGERY_X_NARROW_CANVAS_ASPECT = 1.3;
+export const SURGERY_Z_NARROW_CANVAS_ASPECT = 2.25;
 export const NARROW_3D_CANVAS_ASPECT = 1;
 export const NARROW_TOUCH_TARGET_PX = 40;
 export const NARROW_BASE_TEXT_PX = 15;
@@ -72,6 +80,51 @@ export const NARROW_SLIDER_THUMB_PX = 24;
 
 export function narrowCanvasHeight(canvasWidth, viewportHeight, aspect = NARROW_CANVAS_ASPECT) {
     return Math.min(canvasWidth * aspect, viewportHeight * NARROW_CANVAS_MAX_VH);
+}
+
+// Retain one large-viewport measurement, or the largest observed innerHeight,
+// until the width or actual screen orientation changes.
+export function selectNarrowViewportHeight(previous, {
+    width, height, orientation, largeViewportHeight = null,
+}) {
+    const sameViewport = previous?.width === width && previous?.orientation === orientation;
+    const measured = sameViewport ? previous.largeViewportHeight ?? largeViewportHeight : largeViewportHeight;
+    const largeHeight = Number.isFinite(measured) && measured > 0 ? measured : null;
+    return {
+        width, orientation, largeViewportHeight: largeHeight,
+        height: largeHeight ?? (sameViewport ? Math.max(previous.height, height) : height),
+    };
+}
+
+let narrowViewportState = null;
+let narrowViewportProbe = null;
+
+function narrowViewportOrientation() {
+    const orientation = window.screen?.orientation;
+    // Height-only browser-chrome changes must not masquerade as a rotation.
+    return orientation ? `${orientation.type}:${orientation.angle}` : window.orientation ?? null;
+}
+
+function narrowViewportHeight() {
+    if (!NARROW_STABLE_VIEWPORT_HEIGHT) return window.innerHeight;
+    const width = window.innerWidth;
+    const orientation = narrowViewportOrientation();
+    const sameViewport = narrowViewportState?.width === width
+        && narrowViewportState?.orientation === orientation;
+    let largeViewportHeight = null;
+    if (!sameViewport && window.CSS?.supports?.('height', '100lvh')) {
+        if (!narrowViewportProbe) {
+            narrowViewportProbe = document.createElement('div');
+            narrowViewportProbe.style.cssText = 'position:fixed;top:0;left:0;height:100lvh;width:0;visibility:hidden;pointer-events:none';
+            narrowViewportProbe.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(narrowViewportProbe);
+        }
+        largeViewportHeight = narrowViewportProbe.getBoundingClientRect().height;
+    }
+    narrowViewportState = selectNarrowViewportHeight(narrowViewportState, {
+        width, height: window.innerHeight, orientation, largeViewportHeight,
+    });
+    return narrowViewportState.height;
 }
 
 function isNarrowLayout() {
@@ -87,6 +140,11 @@ export const HTREE_LEGEND_TRANSIT_TAIL_HEAD_RATIO = 3;
 export const STEP_HISTORY_MAX = 500;
 const stepHistory = [];
 const redoHistory = [];
+
+// A completed decode waits this long for logical data before reporting
+// that the check is unavailable. A later response still updates the verdict.
+export const LOGICAL_DATA_WAIT_MS = 10000;
+const logicalDataStates = new WeakMap();
 
 // TASK 4cm: the browser's own scroll-position restoration on reload was
 // putting the page wherever the user last scrolled it before reloading,
@@ -136,6 +194,7 @@ let noiseStoppedAtStep = null;
 let currentLoadedModule = null;
 // The hierarchical legend follows the applied decoder K, not pending inputs.
 let hierarchicalLegendK = null;
+let surgeryLegendSignature = null;
 let canvas = null;
 let ctx = null;
 export const ANIMATION_SPEED_DEFAULT = 24;
@@ -194,6 +253,31 @@ export const REPETITION_STREAMING_TIMER_GROWTH = 2;
 export const REPETITION_STREAMING_MIN_CLOCK_PERIOD = 2;
 // Haah previously used the shared clock control's initial value on first load.
 export const HAAH_DEFAULT_CLOCK_PERIOD = 6;
+export const HAAH_DEFAULT_P = 0.003;
+export const HAAH_CODE_CAPACITY_PROBABILITY_STEP = 0.001;
+export const HAAH_PROBABILITY_STEP = 0.0001;
+
+// Layered Haah defaults; timers are supplied through opts below.
+export const HAAH_STREAMING_DEFAULT_SIZE = HaahStreamingDefaults.HAAH_STREAMING_DEFAULT_SIZE;
+export const HAAH_STREAMING_MIN_SIZE = HaahStreamingDefaults.HAAH_STREAMING_MIN_SIZE;
+export const HAAH_STREAMING_MAX_SIZE = HaahStreamingDefaults.HAAH_STREAMING_MAX_SIZE;
+export const HAAH_STREAMING_DEFAULT_SLICES = HaahStreamingDefaults.HAAH_STREAMING_DEFAULT_SLICES;
+export const HAAH_STREAMING_MIN_SLICES = HaahStreamingDefaults.HAAH_STREAMING_MIN_SLICES;
+export const HAAH_STREAMING_MAX_SLICES = HaahStreamingDefaults.HAAH_STREAMING_MAX_SLICES;
+export const HAAH_STREAMING_DEFAULT_P = HaahStreamingDefaults.HAAH_STREAMING_DEFAULT_P;
+export const HAAH_STREAMING_DEFAULT_P_MEAS = HaahStreamingDefaults.HAAH_STREAMING_DEFAULT_P_MEAS;
+export const HAAH_STREAMING_FIXED_CLOCK_PERIOD = HaahStreamingDefaults.HAAH_STREAMING_FIXED_CLOCK_PERIOD;
+export const HAAH_STREAMING_DEFAULT_ERASURE_MOVES = HaahStreamingDefaults.HAAH_STREAMING_DEFAULT_ERASURE_MOVES;
+
+// X-cube host defaults; the rule modules retain the legacy clock period.
+export const XCUBE_DEFAULT_SIZE = 20;
+export const XCUBE_MIN_SIZE = 3;
+export const XCUBE_MAX_SIZE = 20;
+export const XCUBE_DEFAULT_CLOCK_PERIOD = 10;
+export const XCUBE_LINEON_DEFAULT_P = 0.02;
+export const XCUBE_FRACTON_DEFAULT_P = 0.003;
+export const XCUBE_P_STEP = 0.001;
+export const XCUBE_MAX_STEPS = 20000;
 
 export const SURFACE2_DEFAULT_P = 0.04;
 export const SURFACE_STREAMING_MAX_SIZE = 64;
@@ -202,12 +286,13 @@ export const SURFACE_STREAMING_DEFAULT_P = 0.002;
 export const SURFACE_STREAMING_DEFAULT_P_MEAS = 0.002;
 export const SURFACE_STREAMING_DEFAULT_ERASURE_MOVES = 4;
 export const SURFACE_CG_STREAMING_DEFAULT_SIZE = 24;
-export const SURFACE_CG_STREAMING_DEFAULT_P = 0.001;
-export const SURFACE_CG_STREAMING_DEFAULT_P_MEAS = 0.001;
+export const SURFACE_CG_STREAMING_DEFAULT_P = 0.0005;
+export const SURFACE_CG_STREAMING_DEFAULT_P_MEAS = 0.0005;
+export const SURFACE_CG_PROBABILITY_STEP = 0.0001;
 export const SURFACE_CG_STREAMING_DEFAULT_ERASURE_MOVES = 4;
 export const SURFACE_CG_MAX_SLICES = 3;
 export const SURFACE_CG_COARSE_GRAINING_FACTOR = 2;
-export const SURFACE_CG_FIXED_TIMER_BOUND = 2;
+export const SURFACE_CG_FIXED_TIMER_BOUND = 3;
 export const SURFACE_CG_FIXED_SPLIT_PERIOD = 16;
 export const SURFACE_STREAMING_PROBABILITY_STEP = 0.001;
 export const SURFACE_DEFAULT_CLOCK_PERIOD = 6;
@@ -249,6 +334,95 @@ export function roundToMultiple(L, m, min, max) {
 }
 
 // Decoder configurations
+// Both surgery sectors share the existing hierarchical controls and rule knobs.
+function surgeryDecoderConfig(sector) {
+    const xSector = sector === 'x';
+    return {
+        name: `lattice surgery (hierarchical, rough merge, ${sector.toUpperCase()}-type stabilizer sector)`,
+        title: `lattice surgery on the hierarchical surface-code decoder, ${sector.toUpperCase()}-type stabilizer sector`,
+        description: xSector
+            ? 'Two <span class="nobreak"><i>L</i> × <i>L</i></span> surface-code patches sit side by side, with a vertical rough seam at their condensing boundaries. In the <i>X</i>-type stabilizer sector, merging adds a column of seam checks: the first measured outcomes initialize a seam frame and produce no detector events, while later rounds use ordinary measurement differences. The seam becomes non-absorbing slice by slice after delays proportional to each slice’s update period; an absorbing seam above the final slice collects the remaining seam defects before the frame and surgery outcome are committed. Splitting measures out the seam qubits, removes the seam checks and their detector events, and restores an absorbing seam with the corresponding slice delays. Each patch retains its own hierarchy, and coarse corrections across the seam expand through the physical seam qubits. Operations are separated by at least <span class="nobreak">2<i>L</i></span> steps and wait for the previous introduction to finish. The state card reports the seam geometry, the next permitted operation, the committed outcome and its check against the hidden outcome, rejection, and the logical indicators.'
+            : 'Two <span class="nobreak"><i>L</i> × <i>L</i></span> surface-code patches sit side by side, with a vertical rough seam. The same physical rough merge is non-condensing in the <i>Z</i>-type stabilizer sector, which this decoder represents internally at a <i>y</i>-edge and displays after a quarter turn. Merging initializes the seam qubits in <span class="nobreak">|0⟩</span> and compares the first modified seam checks with their final pre-merge measurements; the merged geometry is introduced slice by slice with delays set by the slice update periods. Splitting measures out the seam qubits, includes those outcomes in the first post-split detector events, and introduces the split geometry with an additional slice delay. The measured bits are folded into the correction channels, whose final values commit a consistent seam frame. Each patch retains its own hierarchy, and coarse corrections across the seam expand through its physical qubits. Operations are separated by at least <span class="nobreak">2<i>L</i></span> steps and wait for the previous introduction to finish. The state card reports the seam geometry, the next permitted operation, the committed frame, and the merged or separate logical indicators.',
+        module: '../modules/surface_cg_surgery_htree.js',
+        className: xSector ? 'SurfaceCGSurgeryXHTreeDecoder' : 'SurfaceCGSurgeryZHTreeDecoder',
+        narrowAspect: xSector ? SURGERY_X_NARROW_CANVAS_ASPECT : SURGERY_Z_NARROW_CANVAS_ASPECT,
+        defaultSize: SURGERY_DEFAULT_SIZE,
+        maxSize: SURGERY_MAX_SIZE,
+        minSize: SURGERY_MIN_SIZE,
+        defaultP: SURFACE_CG_STREAMING_DEFAULT_P,
+        noiseStop: true,
+        surgery: true,
+        drainTimeoutSteps: REPETITION_STREAMING_DRAIN_TIMEOUT_STEPS,
+        errorProbLabel: 'physical error probability',
+        defaultClockPeriod: SURFACE_CG_STREAMING_DEFAULT_CLOCK_PERIOD,
+        fixedClockPeriod: STREAMING_FIXED_CLOCK_PERIOD,
+        minClockPeriod: SURFACE2_MIN_CLOCK_PERIOD,
+        maxClockPeriod: SURFACE_STREAMING_MAX_CLOCK_PERIOD,
+        constrainSize(L, currentValues) {
+            return roundToMultiple(L, SURFACE_CG_COARSE_GRAINING_FACTOR ** currentValues.K,
+                this.minSize ?? 3, this.maxSize);
+        },
+        is3D: false,
+        uncoordVariant: false,
+        noManualPlacement: true,
+        pStep: SURFACE_CG_PROBABILITY_STEP,
+        opts: { n: SURFACE_CG_COARSE_GRAINING_FACTOR,
+            t0: SURFACE_CG_FIXED_TIMER_BOUND, qs: SURFACE_CG_FIXED_SPLIT_PERIOD },
+        extraParams: [
+            { key: 'K', label: 'Slices', default: SURGERY_DEFAULT_SLICES, min: 1, max: SURFACE_CG_MAX_SLICES, step: 1 },
+            { key: 'pMeas', label: 'measurement error probability', default: SURFACE_CG_STREAMING_DEFAULT_P_MEAS, min: 0, max: 1, step: SURFACE_CG_PROBABILITY_STEP, afterErrorProb: true },
+            { key: 'erasureMoves', label: 'extra message erasure moves', default: SURFACE_CG_STREAMING_DEFAULT_ERASURE_MOVES, min: 0, max: STREAMING_MAX_ERASURE_MOVES, step: 1 }
+        ]
+    };
+}
+
+// Preparation and injection keep the hierarchical tab's physical controls.
+function protocolDecoderConfig(kind) {
+    const injection = kind === 'inject';
+    const protocol = injection ? 'injection' : 'preparation';
+    return {
+        name: `state ${protocol} (hierarchical surface code)`,
+        title: `hierarchical surface-code decoder during state ${protocol}`,
+        description: injection
+            ? 'In the <i>X</i>-type stabilizer sector diagnostic, |+⟩ is injected at the upper-left <i>q</i><sub>⋆</sub>, with a rising absorbing frame region in the upper-right half. Absorptions flip <i>ψ</i>; splitting precedes upward drift and ordinary decoding. Deterministic-site expiry rejects and restarts. After the hover, <i>ψ</i> is committed. After stop noise and drain, frame consistency compares residual syndrome with <i>ψ</i> on frame checks and zero elsewhere; the <span class="nobreak">X̄ = +1</span> readout proxy checks left-column parity adjusted by pre-round errors. Both proxy the paper’s cluster-based definitions.'
+            : 'In the <i>X</i>-type stabilizer sector diagnostic, data qubits are prepared in <span class="nobreak">|+⟩<sup>⊗<i>n</i></sup></span>, so ideal first-round <i>X</i>-check outcomes are deterministic. The first measured syndrome initializes a frame <i>ψ</i> without producing defects. An absorbing wall rises through the coarse slices at <span class="nobreak"><i>T</i><sub><i>k</i></sub> = <i>M</i> ∑<sub><i>j</i>&lt;<i>k</i></sub> <i>t</i><sub><i>j</i></sub></span>; absorbed defects flip <i>ψ</i>. Temporary final-slice timers collect defects during the hover. The wall disappears, <i>ψ</i> is committed, and ordinary decoding resumes. After stop noise and drain, frame consistency compares residual syndrome with <i>ψ</i>; the <span class="nobreak">X̄ = +1</span> readout proxy checks left-column parity adjusted by pre-round errors. These are proxies for the paper’s cluster-based failure definitions.',
+        module: '../modules/surface_cg_prep_inject_htree.js',
+        className: injection ? 'SurfaceCGInjectHTreeDecoder' : 'SurfaceCGPrepHTreeDecoder',
+        narrowAspect: NARROW_HIERARCHICAL_CANVAS_ASPECT,
+        defaultSize: SURFACE_CG_STREAMING_DEFAULT_SIZE,
+        maxSize: SURFACE_STREAMING_MAX_SIZE,
+        defaultP: SURFACE_CG_STREAMING_DEFAULT_P,
+        noiseStop: true,
+        drainTimeoutSteps: REPETITION_STREAMING_DRAIN_TIMEOUT_STEPS,
+        errorProbLabel: 'physical error probability',
+        defaultClockPeriod: SURFACE_CG_STREAMING_DEFAULT_CLOCK_PERIOD,
+        fixedClockPeriod: STREAMING_FIXED_CLOCK_PERIOD,
+        minClockPeriod: SURFACE2_MIN_CLOCK_PERIOD,
+        maxClockPeriod: SURFACE_STREAMING_MAX_CLOCK_PERIOD,
+        constrainSize(L, currentValues) {
+            return roundToMultiple(L, SURFACE_CG_COARSE_GRAINING_FACTOR ** currentValues.K,
+                this.minSize ?? 3, this.maxSize);
+        },
+        is3D: false,
+        uncoordVariant: false,
+        noManualPlacement: true,
+        pStep: SURFACE_CG_PROBABILITY_STEP,
+        opts: { n: SURFACE_CG_COARSE_GRAINING_FACTOR,
+            t0: SURFACE_CG_FIXED_TIMER_BOUND, qs: SURFACE_CG_FIXED_SPLIT_PERIOD },
+        extraParams: [
+            { key: 'K', label: 'Slices', default: SURFACE_CG_PROTOCOL_DEFAULT_SLICES, min: 1, max: SURFACE_CG_MAX_SLICES, step: 1 },
+            { key: 'pMeas', label: 'measurement error probability', default: SURFACE_CG_STREAMING_DEFAULT_P_MEAS, min: 0, max: 1, step: SURFACE_CG_PROBABILITY_STEP, afterErrorProb: true },
+            { key: 'erasureMoves', label: 'extra message erasure moves', default: SURFACE_CG_STREAMING_DEFAULT_ERASURE_MOVES, min: 0, max: STREAMING_MAX_ERASURE_MOVES, step: 1 }
+        ]
+    };
+}
+
+function isHierarchicalPresentation(decoderType) {
+    return decoderType === 'surface_cg_htree'
+        || decoderType === 'surface_cg_prep' || decoderType === 'surface_cg_inject'
+        || decoderType === 'surface_cg_surgery_x' || decoderType === 'surface_cg_surgery_z';
+}
+
 const decoderConfigs = {
     'toric2': {
         name: 'toric code (code capacity)',
@@ -320,7 +494,7 @@ const decoderConfigs = {
     'surface_cg_htree': {
         name: 'surface code (phenomenological, hierarchical)',
         title: 'hierarchical surface-code decoder for phenomenological noise',
-        description: 'The hierarchical surface-code decoder for phenomenological noise replaces the <i>K</i> full-resolution slices of the non-hierarchical decoder with progressively more coarse-grained ones: slice <i>k</i> is a copy of the code-capacity surface-code decoder on an <span class="nobreak">(<i>L</i>/2<sup><i>k</i></sup>) × (<i>L</i>/2<sup><i>k</i></sup>)</span> lattice, and each of its sites is the parent of a <span class="nobreak">2 × 2</span> block of child sites in slice <span class="nobreak"><i>k</i> − 1</span>. The total number of sites, summed over all slices, is <span class="nobreak"><i>O</i>(<i>L</i><sup>2</sup>)</span>, where <i>L</i> is the linear system size. New defects are inserted in slice <span class="nobreak"><i>k</i> = 0</span> whenever two consecutive stabilizer measurements at the same site disagree. Slice <i>k</i> updates once every <span class="nobreak">2<sup><i>k</i></sup></span> time steps, and, for <span class="nobreak"><i>k</i> &lt; <i>K</i> − 1</span>, a defect that survives there for two of its updates is promoted to its current site\'s parent site in slice <span class="nobreak"><i>k</i> + 1</span>. Corrections performed on a coarse-grained slice are expanded back into physical corrections on the original lattice. Sites in different slices are interleaved in the plane, which allows the decoder to be implemented with a constant density of classical bits and a constant density of bounded-bandwidth, bounded-propagation-speed wires. Physically, the <span class="nobreak">2<sup><i>k</i></sup>-step</span> clock delays of the coarse-grained slices can be implemented using only a constant amount of memory by using a constant-bandwidth pulse that travels back and forth along a wire of length <span class="nobreak">∼2<sup><i>k</i></sup></span>.',
+        description: 'The hierarchical surface-code decoder for phenomenological noise replaces the <i>K</i> full-resolution slices of the non-hierarchical decoder with progressively more coarse-grained ones: slice <i>k</i> is a copy of the code-capacity surface-code decoder on an <span class="nobreak">(<i>L</i>/2<sup><i>k</i></sup>) × (<i>L</i>/2<sup><i>k</i></sup>)</span> lattice, and each of its sites is the parent of a <span class="nobreak">2 × 2</span> block of child sites in slice <span class="nobreak"><i>k</i> − 1</span>. The total number of sites, summed over all slices, is <span class="nobreak"><i>O</i>(<i>L</i><sup>2</sup>)</span>, where <i>L</i> is the linear system size. New defects are inserted in slice <span class="nobreak"><i>k</i> = 0</span> whenever two consecutive stabilizer measurements at the same site disagree. Slice <i>k</i> updates once every <span class="nobreak">2<sup><i>k</i></sup></span> time steps, and, for <span class="nobreak"><i>k</i> &lt; <i>K</i> − 1</span>, a defect that survives there for three of its updates is promoted to its current site\'s parent site in slice <span class="nobreak"><i>k</i> + 1</span>. Corrections performed on a coarse-grained slice are expanded back into physical corrections on the original lattice. Sites in different slices are interleaved in the plane, which allows the decoder to be implemented with a constant density of classical bits and a constant density of bounded-bandwidth, bounded-propagation-speed wires. Physically, the <span class="nobreak">2<sup><i>k</i></sup>-step</span> clock delays of the coarse-grained slices can be implemented using only a constant amount of memory by using a constant-bandwidth pulse that travels back and forth along a wire of length <span class="nobreak">∼2<sup><i>k</i></sup></span>.',
         module: '../modules/surface_cg_htree.js',
         className: 'SurfaceCGHTreeDecoder',
         narrowAspect: NARROW_HIERARCHICAL_CANVAS_ASPECT,
@@ -341,7 +515,7 @@ const decoderConfigs = {
         is3D: false,
         uncoordVariant: false,
         noManualPlacement: true, // TASK 4ej: no pointerDown/Move/Up gesture protocol of its own
-        pStep: SURFACE_STREAMING_PROBABILITY_STEP,
+        pStep: SURFACE_CG_PROBABILITY_STEP,
         // Fixed values have no inputs, so URL n/t0/qs cannot override them.
         opts: {
             n: SURFACE_CG_COARSE_GRAINING_FACTOR,
@@ -350,10 +524,14 @@ const decoderConfigs = {
         },
         extraParams: [
             { key: 'K', label: 'Slices', default: 3, min: 1, max: SURFACE_CG_MAX_SLICES, step: 1 },
-            { key: 'pMeas', label: 'measurement error probability', default: SURFACE_CG_STREAMING_DEFAULT_P_MEAS, min: 0, max: 1, step: SURFACE_STREAMING_PROBABILITY_STEP, afterErrorProb: true },
+            { key: 'pMeas', label: 'measurement error probability', default: SURFACE_CG_STREAMING_DEFAULT_P_MEAS, min: 0, max: 1, step: SURFACE_CG_PROBABILITY_STEP, afterErrorProb: true },
             { key: 'erasureMoves', label: 'extra message erasure moves', default: SURFACE_CG_STREAMING_DEFAULT_ERASURE_MOVES, min: 0, max: STREAMING_MAX_ERASURE_MOVES, step: 1 }
         ]
     },
+    'surface_cg_surgery_x': surgeryDecoderConfig('x'),
+    'surface_cg_surgery_z': surgeryDecoderConfig('z'),
+    'surface_cg_prep': protocolDecoderConfig('prep'),
+    'surface_cg_inject': protocolDecoderConfig('inject'),
     'repetition2': {
         name: 'repetition code (code capacity)',
         title: 'repetition-code decoder for code-capacity noise',
@@ -413,9 +591,10 @@ const decoderConfigs = {
         description: 'The decoder for Haah\'s code under code-capacity noise corrects a single round of bit-flip errors using a single round of noiseless stabilizer measurement outcomes. Loosely speaking, it is a three-dimensional analog of the toric-code decoder for code-capacity noise. Each defect sources messages that grow outward into seven of the eight octants around it (all but the one pointing left, down, and back) once every clock period. Defects that see messages from other defects to their left, bottom, or back are driven in the leftward, downward, and backward directions by local corrective moves, analogous to the way that the toric-code decoder drives defects leftward and downward. Each message channel is erased using a rotated variant of Toom\'s rule, oriented so that erasure proceeds from the direction opposite to growth.',
         module: '../modules/haah.js',
         className: 'HaahCodeDecoder',
+        webglStage: true,
         narrowAspect: NARROW_3D_CANVAS_ASPECT,
         defaultSize: 20,
-        defaultP: 0.003,
+        defaultP: HAAH_DEFAULT_P,
         defaultClockPeriod: HAAH_DEFAULT_CLOCK_PERIOD,
         minSize: 3,
         maxSize: 20,
@@ -423,7 +602,76 @@ const decoderConfigs = {
         disabledDisplayOptions: ['messages'],
         uncoordVariant: true,
         maxSteps: 20000, // TASK 4dp: added, matching every other code-capacity tab's own runaway-safety valve
-        pStep: 0.001, // TASK 4bl delta: default (0.003) needs 3 decimals, not 2
+        pStep: HAAH_CODE_CAPACITY_PROBABILITY_STEP,
+    },
+    'haah_streaming': {
+        name: 'Haah\'s code (phenomenological)',
+        title: 'Haah\'s-code decoder for phenomenological noise',
+        description: 'The Haah\'s-code decoder for phenomenological noise consists of <i>K</i> coupled code-capacity Haah\'s-code decoders, called slices, stacked along an auxiliary dimension. A new defect is inserted in slice <span class="nobreak"><i>k</i> = 0</span> whenever two consecutive stabilizer measurements at the same site disagree. Each slice is a slightly modified version of the code-capacity Haah\'s-code decoder. In addition, a defect that survives in slice <span class="nobreak"><i>k</i> &lt; <i>K</i> − 1</span> for <span class="nobreak"><i>t</i><sub><i>k</i></sub> ∼ <i>e</i><sup><i>k</i></sup></span> time steps is promoted to the same spatial location in slice <span class="nobreak"><i>k</i> + 1</span>. Apart from promotion, the slices evolve independently of one another. After each step, the message-erasure rule is applied for several additional time steps, with defects held fixed.',
+        module: '../modules/haah_streaming.js',
+        className: 'HaahStreamingDecoder',
+        webglStage: true,
+        narrowAspect: NARROW_3D_CANVAS_ASPECT,
+        defaultSize: HAAH_STREAMING_DEFAULT_SIZE,
+        minSize: HAAH_STREAMING_MIN_SIZE,
+        maxSize: HAAH_STREAMING_MAX_SIZE,
+        defaultP: HAAH_STREAMING_DEFAULT_P,
+        noiseStop: true,
+        drainTimeoutSteps: REPETITION_STREAMING_DRAIN_TIMEOUT_STEPS,
+        errorProbLabel: 'physical error probability',
+        defaultClockPeriod: HAAH_STREAMING_FIXED_CLOCK_PERIOD,
+        fixedClockPeriod: HAAH_STREAMING_FIXED_CLOCK_PERIOD,
+        is3D: true,
+        disabledDisplayOptions: ['messages'],
+        uncoordVariant: false,
+        noManualPlacement: true,
+        pStep: HAAH_PROBABILITY_STEP,
+        opts: { t0: REPETITION_STREAMING_TIMER_BASE, n: REPETITION_STREAMING_TIMER_GROWTH },
+        extraParams: [
+            { key: 'K', label: 'Slices', default: HAAH_STREAMING_DEFAULT_SLICES, min: HAAH_STREAMING_MIN_SLICES, max: HAAH_STREAMING_MAX_SLICES, step: 1 },
+            { key: 'pMeas', label: 'measurement error probability', default: HAAH_STREAMING_DEFAULT_P_MEAS, min: 0, max: 1, step: HAAH_PROBABILITY_STEP, afterErrorProb: true },
+            { key: 'erasureMoves', label: 'extra message erasure moves', default: HAAH_STREAMING_DEFAULT_ERASURE_MOVES, min: 0, max: STREAMING_MAX_ERASURE_MOVES, step: 1 }
+        ]
+    },
+    'xcube_lineon': {
+        name: 'X-cube model (code capacity, lineons)',
+        title: 'X-cube-model lineon decoder for code-capacity noise',
+        description: 'The decoder for the lineon sector of the X-cube model under code-capacity noise corrects a single round of bit-flip errors using a single round of noiseless stabilizer measurement outcomes. Loosely speaking, it is a three-dimensional analog of the toric-code decoder for code-capacity noise. Each defect sources messages that grow outward into all eight octants around it once every clock period. Defects that see messages from other defects to their left, bottom, or back are driven in the leftward, downward, and backward directions by local corrective moves, analogous to the way that the toric-code decoder drives defects leftward and downward. Each message channel is erased using a rotated variant of Toom\'s rule, oriented so that erasure proceeds from the direction opposite to growth.',
+        module: '../modules/xcube_lineon2.js',
+        className: 'XCubeLineon2Decoder',
+        webglStage: true,
+        narrowAspect: NARROW_3D_CANVAS_ASPECT,
+        defaultSize: XCUBE_DEFAULT_SIZE,
+        defaultP: XCUBE_LINEON_DEFAULT_P,
+        defaultClockPeriod: XCUBE_DEFAULT_CLOCK_PERIOD,
+        minSize: XCUBE_MIN_SIZE,
+        maxSize: XCUBE_MAX_SIZE,
+        is3D: true,
+        showErrorCount: true,
+        disabledDisplayOptions: ['messages'],
+        uncoordVariant: true,
+        maxSteps: XCUBE_MAX_STEPS,
+        pStep: XCUBE_P_STEP,
+    },
+    'xcube_fracton': {
+        name: 'X-cube model (code capacity, fractons)',
+        title: 'X-cube-model fracton decoder for code-capacity noise',
+        description: 'The decoder for the fracton sector of the X-cube model under code-capacity noise corrects a single round of phase-flip errors using a single round of noiseless stabilizer measurement outcomes. Loosely speaking, it is a three-dimensional analog of the toric-code decoder for code-capacity noise. Each defect sources messages that grow outward into all eight octants around it once every clock period. Defects that see messages from other defects to their left, bottom, or back are driven in the leftward, downward, and backward directions by local corrective moves, analogous to the way that the toric-code decoder drives defects leftward and downward. Each message channel is erased using a rotated variant of Toom\'s rule, oriented so that erasure proceeds from the direction opposite to growth.',
+        module: '../modules/xcube_fracton2.js',
+        className: 'XCubeFracton2Decoder',
+        webglStage: true,
+        narrowAspect: NARROW_3D_CANVAS_ASPECT,
+        defaultSize: XCUBE_DEFAULT_SIZE,
+        defaultP: XCUBE_FRACTON_DEFAULT_P,
+        defaultClockPeriod: XCUBE_DEFAULT_CLOCK_PERIOD,
+        minSize: XCUBE_MIN_SIZE,
+        maxSize: XCUBE_MAX_SIZE,
+        is3D: true,
+        showErrorCount: true,
+        disabledDisplayOptions: ['messages'],
+        uncoordVariant: true,
+        maxSteps: XCUBE_MAX_STEPS,
+        pStep: XCUBE_P_STEP,
     }
 };
 
@@ -1011,8 +1259,24 @@ function initializeCanvas() {
     // Set initial canvas size
     resizeCanvas();
 
-    // Handle window resize
-    window.addEventListener('resize', resizeCanvas);
+    // Mobile browser chrome changes innerHeight while scrolling. Observe the
+    // fallback maximum, but only re-layout for width/orientation/DPR changes.
+    let viewportWidth = window.innerWidth;
+    let viewportOrientation = narrowViewportOrientation();
+    window.addEventListener('resize', () => {
+        const width = window.innerWidth;
+        const orientation = narrowViewportOrientation();
+        const sameViewport = width === viewportWidth && orientation === viewportOrientation;
+        viewportWidth = width;
+        viewportOrientation = orientation;
+        if (NARROW_STABLE_VIEWPORT_HEIGHT && isNarrowLayout()) {
+            narrowViewportHeight();
+            if (sameViewport && canvasPixelRatio === (window.devicePixelRatio || 1)) return;
+        } else {
+            narrowViewportState = null;
+        }
+        resizeCanvas();
+    });
     // A display/DPR change need not produce a window resize, even paused.
     const watchPixelRatio = () => {
         window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
@@ -1087,7 +1351,7 @@ function applyCanvasSize() {
     }
     if (isNarrowLayout()) {
         const aspect = decoderConfigs[currentDecoderType]?.narrowAspect ?? NARROW_CANVAS_ASPECT;
-        preferredHeight = narrowCanvasHeight(cssWidth, window.innerHeight, aspect);
+        preferredHeight = narrowCanvasHeight(cssWidth, narrowViewportHeight(), aspect);
         if (typeof currentDecoder?.getPreferredNarrowCanvasHeight === 'function') {
             const fitted = currentDecoder.getPreferredNarrowCanvasHeight(cssWidth, preferredHeight);
             if (Number.isFinite(fitted) && fitted > 0) preferredHeight = Math.min(preferredHeight, fitted);
@@ -1306,6 +1570,8 @@ function setupEventListeners() {
     if (playForwardBtn) playForwardBtn.addEventListener('click', playForward);
     if (resetBtn) resetBtn.addEventListener('click', resetSimulation);
     if (noiseBtn) noiseBtn.addEventListener('click', stopNoise);
+    document.getElementById('merge-btn')?.addEventListener('click', () => startSurgery('merge'));
+    document.getElementById('split-btn')?.addEventListener('click', () => startSurgery('split'));
     for (const radio of document.querySelectorAll('input[name="init-mode"]')) {
         radio.addEventListener('change', handleInitModeChange);
     }
@@ -2049,7 +2315,7 @@ async function loadDecoder(decoderType, preserveSize = false, { seed = null, ini
         const decoder = decoderFromControls(config, seed, module);
         // Build asynchronous viewers locally. A newer selection cancels
         // their work before either shared state or viewer DOM is committed.
-        if (decoderType === 'haah') {
+        if (config.webglStage) {
             await enableDecoder3DView(decoder, loadToken);
             if (loadToken !== decoderLoadToken) return;
         }
@@ -2064,7 +2330,7 @@ async function loadDecoder(decoderType, preserveSize = false, { seed = null, ini
         hierarchicalLegendK = null;
         // TASK 4jt: defer hierarchical rows until updateStats() has the
         // constructed decoder's actual K, including URL overrides.
-        if (decoderType !== 'surface_cg_htree') updateLegend(decoderType, module);
+        if (!isHierarchicalPresentation(decoderType)) updateLegend(decoderType, module);
 
         currentDecoder = decoder;
         currentDecoderType = decoderType;
@@ -2094,9 +2360,7 @@ async function loadDecoder(decoderType, preserveSize = false, { seed = null, ini
             }
         }
 
-        // Hide 3D toggle button (haah auto-enables 3D on load; the X-cube
-        // decoders that also used to trigger this were removed from the
-        // selector -- see ORIGIN.md)
+        // WebGL stages auto-enable on load and use the shared display controls.
         const toggle3DBtn = document.getElementById('toggle-3d-btn');
         if (toggle3DBtn) toggle3DBtn.style.display = 'none';
 
@@ -2190,6 +2454,9 @@ function updateLegend(decoderType, moduleColors) {
         // own structurally-matched thickness.
         if (item.edgeColor) colorBox.style.borderColor = item.edgeColor;
         if (item.lineWidth) colorBox.style.height = `${item.lineWidth}px`;
+        if (item.dash) colorBox.style.background = `repeating-linear-gradient(to right, ${item.color} 0 ${item.dash[0]}px, transparent ${item.dash[0]}px ${item.dash[0] + item.dash[1]}px)`;
+
+        if (shape === 'diamond') colorBox.style.clipPath = 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)';
 
         if (shape === 'comet') {
             // Keep the original line box and label spacing. The SVG's round
@@ -2531,16 +2798,21 @@ function getLegendItems(decoderType, moduleColors) {
             ];
         }
         case 'surface_cg_streaming':
-        case 'surface_cg_htree': {
+        case 'surface_cg_htree':
+        case 'surface_cg_surgery_x':
+        case 'surface_cg_prep':
+        case 'surface_cg_inject':
+        case 'surface_cg_surgery_z': {
             // The H-tree shows transient green moves on the left and red
             // residual strings on the right. Level rows use the live K/n.
             const c = moduleColors || {};
             const swatchSize = 14;
             const wBlue = Math.max(2, Math.round(swatchSize / 9));
             const errLineWidth = Math.max(1, 1.05 * wBlue);
+            const protocolSector = decoderType === 'surface_cg_prep' || decoderType === 'surface_cg_inject';
             const items = [
-                { color: c.COLOR_ORB_RIM, edgeColor: '#000000', label: 'defect', shape: 'orb' },
-                ...(decoderType === 'surface_cg_htree' ? [
+                { color: c.COLOR_ORB_RIM, edgeColor: '#000000', label: protocolSector ? 'X-check defect' : 'defect', shape: 'orb' },
+                ...(isHierarchicalPresentation(decoderType) ? [
                     { color: c.HTREE_MOVE_HIGHLIGHT_COLOR_POSITIVE, label: 'defect in transit', shape: 'comet', lineWidth: errLineWidth }
                 ] : []),
                 { color: c.COLOR_ERROR, label: 'error', shape: 'hline', lineWidth: errLineWidth },
@@ -2549,21 +2821,54 @@ function getLegendItems(decoderType, moduleColors) {
                 { color: c.COLOR_MSG10_FILL, edgeColor: c.COLOR_MSG10_EDGE, label: 'green message', shape: 'tile' },
                 { color: c.ROUGH_BOUNDARY_COLOR, label: 'condensing boundary', shape: 'hline', lineWidth: c.ROUGH_BOUNDARY_WIDTH }
             ];
+            if (decoderType === 'surface_cg_surgery_x' || decoderType === 'surface_cg_surgery_z') {
+                const split = currentDecoder?.seamGeometry?.(0) === 'split';
+                const xSector = decoderType === 'surface_cg_surgery_x';
+                const drawJoinedSeam = xSector ? c.SURGERY_X_DRAW_JOINED_SEAM : c.SURGERY_Z_DRAW_JOINED_SEAM;
+                const condensing = xSector && split;
+                if (split || drawJoinedSeam) {
+                    items.push({ color: condensing ? c.ROUGH_BOUNDARY_COLOR
+                            : split ? '#000000' : c.SURGERY_OPEN_SEAM_COLOR,
+                        label: split ? condensing ? 'seam (condensing)' : 'seam (non-condensing)' : 'seam (joined)',
+                        shape: 'hline', lineWidth: condensing ? c.ROUGH_BOUNDARY_WIDTH
+                            : split ? c.HTREE_SMOOTH_BOUNDARY_WIDTH : c.SURGERY_OPEN_SEAM_WIDTH,
+                        dash: split ? null : [c.SURGERY_OPEN_SEAM_DASH, c.SURGERY_OPEN_SEAM_GAP] });
+                }
+            }
+            if (decoderType === 'surface_cg_prep' || decoderType === 'surface_cg_inject') {
+                items.push({ color: c.PROTOCOL_ABSORBING_FILL, edgeColor: c.PROTOCOL_ABSORBING_EDGE,
+                    label: 'absorbing site' });
+                if (decoderType === 'surface_cg_inject') items.push(
+                    { color: c.INJECTION_FRAME_SHADE, label: 'absorbing frame region' },
+                    { color: c.INJECTION_QSTAR_COLOR, edgeColor: c.INJECTION_QSTAR_COLOR,
+                        label: 'injection qubit q⋆', shape: 'diamond' });
+            }
             const levelColors = c.LEVEL_COLORS || [];
             const K = currentDecoder?.K ?? 3;
             const n = currentDecoder?.n ?? 2;
             // H-tree also gives level 0 its own coloured streets and glyphs.
-            for (let k = decoderType === 'surface_cg_htree' ? 0 : 1; k < K; k++) {
+            for (let k = isHierarchicalPresentation(decoderType) ? 0 : 1; k < K; k++) {
                 items.push({
                     color: 'transparent',
                     edgeColor: levelColors[k % levelColors.length],
-                    label: decoderType === 'surface_cg_htree'
+                    label: isHierarchicalPresentation(decoderType)
                         ? `slice-${k} site`
                         : `level ${k} (block n=${Math.pow(n, k)})`
                 });
             }
             return items;
         }
+        case 'xcube_lineon': {
+            const c = moduleColors || {};
+            return [
+                { color: c.COLOR_LINEON_X, edgeColor: c.COLOR_LINEON_X_RIM, label: 'x-type lineon' },
+                { color: c.COLOR_LINEON_Y, edgeColor: c.COLOR_LINEON_Y_RIM, label: 'y-type lineon' },
+                { color: c.COLOR_LINEON_Z, edgeColor: c.COLOR_LINEON_Z_RIM, label: 'z-type lineon' },
+                { color: c.COLOR_ERROR_QUBIT, edgeColor: c.COLOR_ERROR_RIM, label: 'error' }
+            ];
+        }
+        case 'xcube_fracton':
+        case 'haah_streaming':
         case 'haah': {
             // Match the 3D fills and silhouette rims, using the same
             // rounded, bordered swatches as the site's message entries.
@@ -2717,7 +3022,12 @@ async function initializeErrors({ seed = null, loadToken = decoderLoadToken } = 
 // Logical data can arrive after a quiescent run has stopped stepping.
 // Refresh only the still-current instance, including its state card.
 function watchLogicalData(decoder, loadToken) {
-    decoder.logicalDataReady?.then(() => {
+    decoder.logicalDataReady?.then(loaded => {
+        const state = logicalDataState(decoder);
+        state.loaded = loaded !== false;
+        state.failed = loaded === false;
+        if (state.timer !== null) clearTimeout(state.timer);
+        state.timer = null;
         if (loadToken !== decoderLoadToken || decoder !== currentDecoder) return;
         if (isPlaying && isRunOver()) stopPlayback();
         updateStats();
@@ -2725,8 +3035,34 @@ function watchLogicalData(decoder, loadToken) {
     });
 }
 
+function logicalDataState(decoder) {
+    if (!logicalDataStates.has(decoder)) {
+        logicalDataStates.set(decoder, { loaded: false, failed: false, expired: false, timer: null });
+    }
+    return logicalDataStates.get(decoder);
+}
+
+function getRunLogicalCheck(decoder) {
+    const check = decoder.checkLogicalError?.() ?? { hasError: false };
+    if (!check.pending) return check;
+    const state = logicalDataState(decoder);
+    if (state.failed || state.expired) return { unavailable: true, hasError: false };
+    if (advanceRequested && isDecoderQuiescent(decoder) && state.timer === null) {
+        const loadToken = decoderLoadToken;
+        state.timer = setTimeout(() => {
+            state.timer = null;
+            state.expired = true;
+            decoder.retryLogicalData?.();
+            if (loadToken !== decoderLoadToken || decoder !== currentDecoder) return;
+            updateStats();
+            render();
+        }, LOGICAL_DATA_WAIT_MS);
+    }
+    return check;
+}
+
 // Each decoder defines its stopping condition through isQuiescent().
-// Most require no defects or messages; Haah stops once defects clear.
+// Most require no defects or messages; Haah and X-cube ignore messages.
 // For a decoder without this method, fall back to "no defects" alone.
 function isDecoderQuiescent(decoder) {
     if (!decoder) return false;
@@ -2882,7 +3218,7 @@ function stepOnce() {
     const uncoord = ASYNC_MODE_ENABLED && document.getElementById('uncoordinated')?.checked;
     if (uncoord && typeof currentDecoder.stepUncoord === 'function') {
         currentDecoder.stepUncoord();
-    } else if (currentDecoderType === 'surface_cg_htree' && isPlaying) {
+    } else if (isHierarchicalPresentation(currentDecoderType) && isPlaying) {
         // Snapshot the live Play interval for this batch's travelling pulses.
         currentDecoder.step(animationStepIntervalMs());
     } else {
@@ -3053,10 +3389,10 @@ function isManualStreamingRun() {
     return currentDecoderType === 'repetition_streaming' && !!currentDecoder?.manualMode;
 }
 
-// Match the status row, including verdicts reached without taking a step.
+// Stop physical decoding at quiescence even while the logical verdict is
+// pending. watchLogicalData resolves that verdict without another step.
 function isRunOver() {
-    return !!currentDecoder && ((advanceRequested && isDecoderQuiescent(currentDecoder)
-        && !currentDecoder.checkLogicalError?.().pending)
+    return !!currentDecoder && ((advanceRequested && isDecoderQuiescent(currentDecoder))
         || hasReachedStepLimit());
 }
 
@@ -3108,6 +3444,93 @@ function updateNoiseButton() {
     if (noiseBtn.textContent !== 'stop noise') noiseBtn.textContent = 'stop noise';
 }
 
+function updateSurgeryControls() {
+    const available = !!getCurrentDecoderConfig()?.surgery && !!currentDecoder;
+    for (const kind of ['merge', 'split']) {
+        const button = document.getElementById(`${kind}-btn`);
+        if (!button) continue;
+        button.style.display = available ? '' : 'none';
+        button.disabled = !available || !currentDecoder[kind === 'merge' ? 'canMerge' : 'canSplit']?.();
+    }
+    const xSector = available && currentDecoder.sector === 'x';
+    const row = (key, visible, value) => {
+        const element = document.getElementById(`${key}-row`);
+        if (element) element.style.display = visible ? 'contents' : 'none';
+        if (visible) updateStatText(document.getElementById(`${key}-value`), value);
+    };
+    const state = currentDecoder?.seamState || 'split';
+    const introducing = state === 'merging' || state === 'splitting';
+    row('seam-state', available, introducing
+        ? `${state} (${currentDecoder.switchedSliceCount} of ${currentDecoder.K} slices switched)` : state);
+    row('next-surgery', available, `step ${currentDecoder?.nextSurgeryStep ?? 0}`);
+    row('seam-frame', available && !xSector, currentDecoder?.seamFrameCommitted
+        ? 'seam frame committed' : 'not committed');
+    row('surgery-outcome', xSector, currentDecoder?.surgeryOutcome ?? 'pending');
+    row('outcome-check', xSector, currentDecoder?.outcomeCheck == null
+        ? 'pending' : currentDecoder.outcomeCheck ? 'agrees' : 'disagrees');
+    row('surgery-rejected', xSector, currentDecoder?.rejected ? 'rejected' : 'accepted');
+    const check = available ? currentDecoder.checkLogicalError?.() : null;
+    const patchValues = check?.patches ?? check?.patchLogical ?? currentDecoder?.patchLogical;
+    row('patch-logical', available, state.startsWith('merg')
+        ? `merged: ${Number(!!check?.logical)}`
+        : `A: ${Number(!!(patchValues?.[0]?.logical ?? patchValues?.[0]))}, B: ${Number(!!(patchValues?.[1]?.logical ?? patchValues?.[1]))}`);
+    // Only the surgery legend changes with physical seam geometry.
+    if (available) {
+        const signature = `${currentDecoderType}:${currentDecoder.K}:${currentDecoder.seamGeometry?.(0)}`;
+        if (surgeryLegendSignature !== signature) {
+            updateLegend(currentDecoderType, currentLoadedModule);
+            surgeryLegendSignature = signature;
+            hierarchicalLegendK = currentDecoder.K;
+        }
+    }
+}
+
+function updateProtocolStateRows() {
+    const available = typeof currentDecoder?.getProtocolState === 'function';
+    const state = available ? currentDecoder.getProtocolState() : null;
+    const verdict = available ? currentDecoder.getProtocolVerdict() : null;
+    const injection = currentDecoder?.protocolKind === 'inject';
+    const rows = [
+        ['protocol-wall', injection ? 'region' : 'wall', available, state?.wallPosition],
+        ['protocol-frame-flips', 'frame flips', available, state?.frameFlips],
+        ['protocol-frame-committed', 'frame committed', available,
+            state?.frameCommitted ? `yes, step ${state.frameCommitStep}` : 'no'],
+        ['protocol-attempts', 'attempts', available && injection, state?.attempts],
+        ['protocol-rejection', 'rejection', available && injection,
+            state?.rejected ? `rejected (${state.rejectionCount}); ${state.frameCommitted ? 'retry committed' : 'retrying'}` : 'no'],
+        ['protocol-frame-consistency', 'frame consistency', available && !!verdict?.drained,
+            verdict?.frameConsistent ? 'consistent' : 'inconsistent'],
+        ['protocol-logical', 'X̄ proxy', available && !!verdict?.drained,
+            verdict?.logicalEven ? '+1 (even)' : '−1 (odd)'],
+    ];
+    for (const [key, label, visible, value] of rows) {
+        // Avoid creating hidden protocol nodes on an ordinary page load.
+        let row = document.getElementById(`${key}-row`);
+        if (available && !row) row = ensureStateCardRow(`${key}-row`, label, `${key}-value`);
+        if (!row) continue;
+        row.style.display = visible ? 'contents' : 'none';
+        if (row.firstElementChild) row.firstElementChild.textContent = `${label}:`;
+        if (visible) {
+            const target = document.getElementById(`${key}-value`);
+            updateStatText(target, value ?? 'pending');
+            if (target) target.style.whiteSpace = 'normal';
+        }
+    }
+}
+
+function startSurgery(kind) {
+    if (!getCurrentDecoderConfig()?.surgery || !currentDecoder) return;
+    if (!currentDecoder[kind === 'merge' ? 'canMerge' : 'canSplit']()) return;
+    // Keep the previous checkpoint; the next forward step captures the
+    // operation as part of decoder state, so reverse/replay crosses it intact.
+    pushStepHistory(captureStepState());
+    clearStepRedo();
+    currentDecoder[kind]();
+    advanceRequested = false;
+    updateStats();
+    render();
+}
+
 // TASK 4fo (updates 4fm): stop once per initialization. The existing
 // Initialize, Reset, and decoder-load paths restore noise and the button.
 function stopNoise() {
@@ -3124,17 +3547,33 @@ function updateStatusRow() {
     if (!statusValue || !currentDecoder) return;
     updatePlayButtons();
 
-    const logicalCheck = advanceRequested && isDecoderQuiescent(currentDecoder)
-        ? currentDecoder.checkLogicalError?.() ?? { hasError: false } : null;
-    if (logicalCheck && !logicalCheck.pending) {
+    const quiescentRun = advanceRequested && isDecoderQuiescent(currentDecoder);
+    const check = quiescentRun || currentDecoder.logicalDataReady
+        ? getRunLogicalCheck(currentDecoder) : { hasError: false };
+    const data = logicalDataState(currentDecoder);
+    const logicalText = check.unavailable || data.failed || (data.expired && !data.loaded)
+        ? 'data could not be loaded' : currentDecoder.logicalDataReady && !data.loaded
+            ? 'loading…' : '';
+    // Ready data needs no state-card row; retain it only for loading or failure.
+    const logicalRow = document.getElementById('logical-check-row');
+    if (logicalRow) logicalRow.style.display = currentDecoder.logicalDataReady && logicalText ? 'contents' : 'none';
+    updateStatText(document.getElementById('logical-check-value'), logicalText);
+    const logicalCheck = quiescentRun ? check : null;
+    // The unavailable verdict must wrap inside the value column, including
+    // under the three-pillar stylesheet's normally unwrapped status rule.
+    statusValue.style.whiteSpace = logicalCheck?.unavailable ? 'normal' : '';
+    statusValue.style.minWidth = logicalCheck?.unavailable ? '0' : '';
+    if (logicalCheck) {
         const hasLogicalError = !!logicalCheck.hasError;
         // TASK 4bg: back to "failure" (TASK 4bc delta had tried "logical
         // error"; reverted by user's choice).
         // Finish in-flight presentation on its own clock once stepping ends.
         currentDecoder.finishRunPresentation?.(animationStepIntervalMs());
-        updateStatText(statusValue, hasLogicalError ? 'failure' : 'success');
-        statusValue.style.color = hasLogicalError ? '#f87171' : '#34d399';
-        statusValue.style.fontWeight = '600';
+        updateStatText(statusValue, logicalCheck.pending ? 'pending data'
+            : logicalCheck.unavailable ? 'success (logical check unavailable)'
+                : hasLogicalError ? 'failure' : 'success');
+        statusValue.style.color = logicalCheck.pending ? '' : hasLogicalError ? '#f87171' : '#34d399';
+        statusValue.style.fontWeight = logicalCheck.pending ? '' : '600';
         statusValue.style.width = '';
         statusValue.style.justifySelf = '';
     } else if (hasReachedStepLimit()) {
@@ -3284,9 +3723,31 @@ function updateStatText(element, value) {
     }
 }
 
+// Keep optional state rows in the host so the shared static markup and
+// styles stay unchanged. Once created, their text nodes survive updates.
+function ensureStateCardRow(id, label, valueId) {
+    let row = document.getElementById(id);
+    const statusRow = document.getElementById('status-row');
+    if (!row && statusRow?.parentNode) {
+        row = document.createElement('div');
+        row.id = id;
+        row.className = 'stat-row';
+        const name = document.createElement('span');
+        name.textContent = `${label}:`;
+        const value = document.createElement('span');
+        value.id = valueId;
+        row.appendChild(name);
+        row.appendChild(value);
+        statusRow.parentNode.insertBefore(row, statusRow);
+    }
+    return row;
+}
+
 function updateStats() {
     if (!currentDecoder) return;
     updateNoiseButton();
+    updateSurgeryControls();
+    updateProtocolStateRows();
 
     const stepCount = document.getElementById('step-count');
     const clockRow = document.getElementById('clock-row');
@@ -3323,17 +3784,30 @@ function updateStats() {
     updateStatText(clockValue, currentDecoder.stepCount === 0 ? 0 : currentDecoder.clock || 0);
     const decoderDefects = currentDecoder.getSyndromeCount();
     updateStatText(syndromeCount, decoderDefects);
-    // TASK 4db: the "errors" row itself is gone from index.html (see its
-    // own comment there) -- getErrorCount() is deliberately still called
-    // nowhere else in this function now; every decoder module keeps the
-    // method itself for the test harnesses, just no longer surfaced here.
+    const errorsRow = document.getElementById('errors-row');
+    const showErrorCount = !!getCurrentDecoderConfig()?.showErrorCount;
+    if (errorsRow) errorsRow.style.display = showErrorCount ? 'contents' : 'none';
+    if (showErrorCount) updateStatText(document.getElementById('error-count'), currentDecoder.getErrorCount());
+
+    const messagesRow = ensureStateCardRow('messages-row', 'messages', 'messages-count');
+    const showMessages = ['xcube_lineon', 'xcube_fracton', 'haah_streaming'].includes(currentDecoderType);
+    if (messagesRow) messagesRow.style.display = showMessages ? 'contents' : 'none';
+    if (showMessages) updateStatText(document.getElementById('messages-count'), currentDecoder.getMemoryCount());
+
+    ensureStateCardRow('logical-check-row', 'logical check', 'logical-check-value');
+    const logicalValue = document.getElementById('logical-check-value');
+    if (logicalValue) logicalValue.style.whiteSpace = 'normal';
 
     // Streaming cards distinguish live decoder-slice defects from the
-    // corrected physical system's syndrome; other cards keep one row.
+    // corrected physical system's syndrome; preparation/injection getters
+    // measure that syndrome relative to psi. Other cards keep one row.
     const hasSystemDefects = typeof currentDecoder.getSystemDefectCount === 'function';
     if (defectsRow) defectsRow.style.display = hasSystemDefects ? 'none' : 'contents';
     if (decoderDefectsRow) decoderDefectsRow.style.display = hasSystemDefects ? 'contents' : 'none';
     if (systemDefectsRow) systemDefectsRow.style.display = hasSystemDefects ? 'contents' : 'none';
+    if (systemDefectsRow) systemDefectsRow.title = typeof currentDecoder.getProtocolState === 'function'
+        ? `Residual syndrome relative to the ${currentDecoder.frameCommitted ? 'committed' : 'current'} frame ψ`
+        : '';
     if (hasSystemDefects) {
         updateStatText(decoderDefectsCount, decoderDefects);
         updateStatText(systemDefectsCount, currentDecoder.getSystemDefectCount());
@@ -3344,7 +3818,7 @@ function updateStats() {
     // TASK 4jt: load, Initialize (also Slices Enter/Reset), and history
     // restoration all update stats before rendering. Rebuild only when
     // the applied K changes, leaving legend nodes intact on ordinary steps.
-    if (currentDecoderType === 'surface_cg_htree' && hierarchicalLegendK !== currentDecoder.K) {
+    if (isHierarchicalPresentation(currentDecoderType) && hierarchicalLegendK !== currentDecoder.K) {
         updateLegend(currentDecoderType, currentLoadedModule);
         hierarchicalLegendK = currentDecoder.K;
     }
@@ -3713,7 +4187,7 @@ function canvasEventToLocal(event) {
 }
 
 function isCodeCapacityDecoder(decoderType) {
-    return ['repetition2', 'toric2', 'surface2', 'haah'].includes(decoderType);
+    return ['repetition2', 'toric2', 'surface2', 'haah', 'xcube_lineon', 'xcube_fracton'].includes(decoderType);
 }
 
 // Streaming retains its paused future-window rule; its module checks rows.

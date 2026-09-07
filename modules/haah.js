@@ -5,6 +5,7 @@
 // Syndrome formula (from haah_code_ca.py):
 //   s[i,j,k] = q0[i,j,k]   ^ q0[i+1,j+1,k] ^ q0[i+1,j,k+1] ^ q0[i,j+1,k+1]
 //            ^ q1[i,j,k]   ^ q1[i,j+1,k]   ^ q1[i+1,j,k]   ^ q1[i,j,k+1]
+import { loadLogicalData, missingLogicalDataResult } from './logical_data.js';
 
 // TASK 4ex: named, exported so main.js's getLegendItems('haah', ...) can
 // build its legend from these same values instead of duplicating them --
@@ -66,27 +67,16 @@ export const CAMERA_DISTANCE_FACTOR = 1.09;
 
 // Precomputed logical operators loaded once from JSON, keyed by L.
 // Fetch begins immediately on module import. The host waits for this promise
-// before finalizing a defect-free verdict; an absent cache entry is pending.
-const _haahLogicalsCache = new Map();
-const _haahLogicalsReady = fetch(new URL('../data/haah_logicals.json', import.meta.url))
-    .then(r => r.json())
-    .then(data => {
-        for (const [Lstr, rows] of Object.entries(data)) {
-            _haahLogicalsCache.set(parseInt(Lstr), rows.map(r => new Uint32Array(r)));
-        }
-        return true;
-    })
-    .catch(e => {
-        console.warn('Failed to load haah_logicals.json:', e);
-        return false;
-    });
+// before finalizing a checked verdict; failed or absent data stays explicit.
+const _haahLogicalData = loadLogicalData(new URL('../data/haah_logicals.json', import.meta.url));
+const _haahLogicalsCache = _haahLogicalData.cache;
 
 export class HaahCodeDecoder {
     constructor(L, clockPeriod = 8, opts = {}) {
         this.L = L;
         this.clockPeriod = clockPeriod;
         this.stepCount = 0;
-        this.logicalDataReady = _haahLogicalsReady;
+        this.logicalDataReady = _haahLogicalData.ready;
         // The host owns the radio, playback and verdict state. Standalone
         // viewers cannot edit until the host supplies an explicit gate.
         this._canEditInitialErrors = opts.canEditInitialErrors ?? null;
@@ -1005,10 +995,12 @@ export class HaahCodeDecoder {
         return this.getSyndromeCount() === 0;
     }
 
+    retryLogicalData() { return _haahLogicalData.retry(); }
+
     checkLogicalError() {
         if (this.getSyndromeCount() !== 0) return { hasError: false };
         const logicals = _haahLogicalsCache.get(this.L);
-        if (!logicals) return { pending: true, hasError: false };
+        if (!logicals) return missingLogicalDataResult(_haahLogicalData);
         const L = this.L, L3 = L * L * L, n = 2 * L3, nw = Math.ceil(n / 32);
         const ep = new Uint32Array(nw);
         for (let x = 0; x < L; x++)

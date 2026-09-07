@@ -14,6 +14,21 @@ const SURFACE_STREAM_FIELDS = ['L', 'Lx', 'Ly', 'q', 'growthWindow',
     '_lastMeasurementHasError', 'slices', 'bx', 'by', '_prevTildeS', 't',
     'stepCount', 'lastPhi', '_lastPhi', 'lastPromotions', 'lastCondensations',
     'lastDidSplit', 'residualX', 'residualY', 'residualSyndrome', 'pending'];
+const PROTOCOL_FIELDS = [...SURFACE_STREAM_FIELDS, 'protocolSchedule', 'frame',
+    'committedFrame', 'frameCommitted', 'frameCommitStep', 'frameFlips',
+    'attempts', 'rejected', 'rejectionCount', 'lastRejectionStep', 'initialBx',
+    'initialBy', 'initialTildeS', 'qStar', 'lastProtocolStages', 'lastAbsorptions',
+    '_rejectionThisStep', '_restartFromCurrent'];
+const SURGERY_FIELDS = [...SURFACE_STREAM_FIELDS, 'sector', '_initiallyMerged',
+    'surgery', '_stableSeamState', 'lastSurgeryStep', 'geometrySwitchLog',
+    '_sliceGeometry', 'seamFrameCommitted', 'surgeryOutcome', 'outcomeCheck',
+    'rejected', '_patchNoiseEnabled', 'seamFrame'];
+const SURGERY_Z_FIELDS = [...SURGERY_FIELDS, '_rngBState', '_seamQubitsPresent',
+    '_seamFrameBaseline', '_splitMeasurements', '_seamFirstRound', '_seamEverMerged'];
+const SURGERY_X_FIELDS = [...SURGERY_FIELDS, 'patchL', '_seamHidden',
+    '_seamPrevious', '_seamChi', '_preMergeSupport', '_seamMeasured',
+    '_seamLeft', '_seamRight', '_seamChild', 'trueSurgeryOutcome',
+    '_firstMergeMeasurement', '_resetFinalTimers', '_seamPresent'];
 const FIELDS = {
     RepetitionCode2Decoder: [...CAPACITY_FIELDS, ...POINTER_FIELDS,
         'qubits', 'mGrid', 'clockGrid', 'syndrome', 'history', '_viewOffset'],
@@ -32,8 +47,26 @@ const FIELDS = {
     SurfaceStreaming3DDecoder: SURFACE_STREAM_FIELDS,
     SurfaceCGStreamingDecoder: SURFACE_STREAM_FIELDS,
     SurfaceCGHTreeDecoder: SURFACE_STREAM_FIELDS,
+    SurfaceCGPrepDecoder: PROTOCOL_FIELDS,
+    SurfaceCGInjectDecoder: PROTOCOL_FIELDS,
+    SurfaceCGPrepHTreeDecoder: PROTOCOL_FIELDS,
+    SurfaceCGInjectHTreeDecoder: PROTOCOL_FIELDS,
+    SurfaceCGSurgeryDecoder: SURGERY_FIELDS,
+    SurfaceCGSurgeryZDecoder: SURGERY_Z_FIELDS,
+    SurfaceCGSurgeryXDecoder: SURGERY_X_FIELDS,
+    SurfaceCGSurgeryZHTreeDecoder: SURGERY_Z_FIELDS,
+    SurfaceCGSurgeryXHTreeDecoder: SURGERY_X_FIELDS,
     HaahCodeDecoder: ['L', 'clockPeriod', 'stepCount', 'clock',
         'qubitsA', 'qubitsB', 'syndrome', 'messages'],
+    HaahStreamingDecoder: ['L', 'q', 'clockPeriod', 'clock', 'K', 't0', 'n',
+        'pPhys', 'pMeas', 'erasureMoves', 'seed', 'finalSliceTimed', 'slices',
+        'physicalA', 'physicalB', 'residualA', 'residualB', 'residualSyndrome',
+        '_prevTildeS', '_noiseEnabled', '_lastMeasurementHasError', '_testPhiQueue',
+        'stepCount', 't', 'lastPhi', 'lastPromotions'],
+    XCubeFracton2Decoder: ['L', 'clockPeriod', 'stepCount', 'clock',
+        'links', 'syndrome', 'memory'],
+    XCubeLineon2Decoder: ['L', 'clockPeriod', 'stepCount', 'clock',
+        'links', 'syndrome', 'ell1', 'ell2', 'ell3', 'memory'],
 };
 
 // Each row is created once and never mutated by the decoder. Copy its payload
@@ -154,6 +187,10 @@ export function captureDecoderState(decoder) {
     if (typeof decoder._rng?.getState === 'function') {
         snapshot.rng = { source: decoder._rng, state: captureValue(decoder._rng.getState()) };
     }
+    // The independent second patch must replay its own noise stream too.
+    if (typeof decoder._rngB?.getState === 'function') {
+        snapshot.rngB = { source: decoder._rngB, state: captureValue(decoder._rngB.getState()) };
+    }
     if (typeof decoder.captureStepPresentation === 'function') {
         snapshot.presentation = captureValue(decoder.captureStepPresentation());
     }
@@ -175,6 +212,10 @@ export function restoreDecoderState(decoder, snapshot, presentationOptions) {
     if (snapshot.rng) {
         decoder._rng = snapshot.rng.source;
         decoder._rng.setState(restoreValue(snapshot.rng.state));
+    }
+    if (snapshot.rngB) {
+        decoder._rngB = snapshot.rngB.source;
+        decoder._rngB.setState(restoreValue(snapshot.rngB.state));
     }
     decoder.restoreStepPresentation?.(restoreValue(snapshot.presentation), presentationOptions);
     if (decoder.is3DMode && typeof decoder._update3D === 'function') decoder._update3D();
