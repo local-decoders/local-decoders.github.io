@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Decoders</title>
+    <link rel="icon" type="image/svg+xml" href="favicon_solid.svg">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="title">local decoders for fault-tolerant quantum computation<br>and translation-invariant stabilizer codes</h1>
+        </header>
+
+        <!-- Control Panel -->
+        <div class="control-panel" id="control-panel">
+            <!-- Decoder Selection -->
+            <div class="control-group">
+                <label for="decoder-select" class="control-label">Code</label>
+                <select id="decoder-select" class="control-input">
+                    <option value="repetition2">repetition code (code capacity)</option>
+                    <option value="repetition_streaming">repetition code (phenomenological)</option>
+                    <option value="toric2">toric code (code capacity)</option>
+                    <option value="surface2">surface code (code capacity)</option>
+                    <option value="surface_streaming_3d">surface code (phenomenological)</option>
+                    <option value="surface_cg_htree" selected>surface code (phenomenological, hierarchical)</option>
+                    <option value="haah">Haah's code (code capacity)</option>
+                </select>
+            </div>
+
+            <!-- TASK 4dn: reordered to code, controls, animation speed,
+                 display, initial errors, system size, error probability,
+                 clock period, mode, then the decoder-specific extra
+                 parameters last (4dn's own amendment moved "mode" here,
+                 out of the top group). Every section keeps its original
+                 contents/ids/handlers/hidden-state logic unchanged --
+                 only the DOM order moved. See styles.css's own comment
+                 on .last-visible-section and main.js's
+                 updateSectionDividers() for how the trailing divider is
+                 kept correct now that the section which is actually last
+                 VISIBLE varies per decoder (extra-params-container when
+                 non-empty, otherwise "mode" when visible, otherwise
+                 clock period) even though extra-params-container itself
+                 is now always the last section in the DOM. -->
+
+            <!-- Simulation Controls -->
+            <div class="control-group">
+                <label class="control-label">controls</label>
+                <div class="button-group">
+                    <button id="init-btn" class="btn btn-secondary">Initialize</button>
+                    <button id="reset-btn" class="btn btn-secondary">Reset</button>
+                    <div id="transport-controls" class="transport-row">
+                        <button id="play-back-btn" class="btn btn-secondary" aria-label="reverse play" title="reverse play">◀◀</button>
+                        <button id="step-back-btn" class="btn btn-secondary" aria-label="step back" title="step back">◀</button>
+                        <button id="play-btn" class="btn btn-primary" aria-label="play" title="play">▶</button>
+                        <button id="step-btn" class="btn btn-secondary" aria-label="step forward" title="step forward">▶</button>
+                        <button id="play-fwd-btn" class="btn btn-secondary" aria-label="forward play" title="forward play">▶▶</button>
+                    </div>
+                    <button id="noise-btn" class="btn btn-secondary" style="display: none; grid-column: 1 / -1;" disabled>stop noise</button>
+                    <button id="toggle-3d-btn" class="btn btn-secondary" style="display: none;">Enable 3D</button>
+                </div>
+            </div>
+
+            <!-- Speed Control -->
+            <div class="control-group">
+                <label for="speed-slider" class="control-label">Animation Speed</label>
+                <div class="slider-container">
+                    <input type="range" id="speed-slider" class="slider" min="1" max="100" value="24">
+                    <input type="text" inputmode="numeric" pattern="[0-9]*" id="speed-value" class="slider-value" min="1" max="100" step="1" value="24">
+                </div>
+            </div>
+
+            <!-- Display Options -->
+            <div class="control-group">
+                <label class="control-label">Display</label>
+                <div class="checkbox-group">
+                    <label class="checkbox-label" id="show-syndrome-label">
+                        <input type="checkbox" id="show-syndrome" checked>
+                        <span>defects</span>
+                    </label>
+                    <label class="checkbox-label" id="show-errors-label">
+                        <input type="checkbox" id="show-errors" checked>
+                        <span>errors</span>
+                    </label>
+                    <label class="checkbox-label" id="show-messages-label">
+                        <input type="checkbox" id="show-messages" checked>
+                        <span>messages</span>
+                    </label>
+                    <label class="checkbox-label" id="show-grid-label">
+                        <input type="checkbox" id="show-grid" checked>
+                        <span>grid</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Initialization Mode -->
+            <div class="control-group">
+                <label class="control-label">initial errors</label>
+                <div class="radio-group">
+                    <label class="radio-label">
+                        <input type="radio" name="init-mode" value="random" checked>
+                        <span>random</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="init-mode" value="manual">
+                        <span>manual</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- System Size -->
+            <div class="control-group">
+                <label for="size-input" class="control-label">system size</label>
+                <input type="number" id="size-input" class="control-input" value="13" min="3" max="100">
+            </div>
+
+            <!-- Error Probability -->
+            <div class="control-group">
+                <label for="error-prob" class="control-label">error probability</label>
+                <input type="number" id="error-prob" class="control-input" value="0.04" step="0.01" min="0" max="1">
+            </div>
+
+            <!-- Extra parameters that belong immediately after error probability. -->
+            <div id="after-error-prob-params-container"></div>
+
+            <!-- Clock Period -->
+            <div class="control-group">
+                <label for="clock-period" class="control-label">clock period</label>
+                <div class="slider-container">
+                    <input type="range" id="clock-period" class="slider" min="2" max="60" step="1" value="6">
+                    <input type="text" inputmode="numeric" pattern="[0-9]*" id="clock-period-value" class="slider-value" min="2" max="60" step="1" value="6">
+                </div>
+            </div>
+
+            <!-- Splitting Period (q') -- legacy/unused: config.hasSplitPeriod
+                 is never set true by any current decoder, so this row is
+                 always display:none in practice; kept adjacent to Clock
+                 Period, its closest conceptual sibling, since its own DOM
+                 position has no visible effect either way. -->
+            <div class="control-group" id="split-period-row" style="display: none;">
+                <label for="split-period" class="control-label">Splitting Period (q')</label>
+                <div class="slider-container">
+                    <input type="range" id="split-period" class="slider" min="1" max="60" step="1" value="6">
+                    <span id="split-period-value" class="slider-value">6</span>
+                </div>
+            </div>
+
+            <!-- Simulation Options (decoder-specific: only shown when
+                 config.uncoordVariant is true) -->
+            <div class="control-group" id="uncoordinated-row" style="display: none;">
+                <label class="control-label">Mode</label>
+                <div class="checkbox-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="uncoordinated">
+                        <span>asynchronous</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Extra Parameters (decoder-specific, populated dynamically
+                 from decoderConfigs[...].extraParams) -- always the last
+                 section in the DOM now; see the header comment above. -->
+            <div id="extra-params-container"></div>
+
+        </div>
+
+        <!-- Right Column: visualization only now (TASK 4bv moved the
+             description into an overlay card inside it, mirroring the
+             state/legend stack) -->
+        <div class="right-column">
+            <!-- Visualization Area -->
+            <div class="visualization-container">
+                <!-- TASK 4bn: decoder title, moved here from the description
+                     box -- same id, so main.js's existing
+                     getElementById('decoder-name') needs no change; same
+                     font/colour/size .description-panel h2 used to have,
+                     now centred above the canvas instead of left-aligned
+                     above the paragraph (see .viz-title in styles.css). -->
+                <h2 id="decoder-name" class="viz-title">Toric code (RGB)</h2>
+
+                <!-- .canvas-area is the containing block for .overlay-stack
+                     and .description-stack (position:relative here, not on
+                     .visualization-container any more) so both overlays
+                     always anchor to the canvas's own top corners and never
+                     overlap .viz-title above them, regardless of its
+                     height. -->
+                <div class="canvas-area">
+                    <canvas id="main-canvas"></canvas>
+
+                    <!-- TASK 4bv: description card, the left-hand mirror of
+                         the state/legend stack on the right -- same card
+                         styling (.description-panel is now part of that
+                         shared .legend, .info-panel rule in styles.css),
+                         same "description" heading style, same top/side
+                         inset as .overlay-stack uses on its side. Narrow
+                         (max-width on the stack) so it reads as a column
+                         next to the graphic rather than covering it; kept
+                         the same #decoder-description id so main.js's
+                         existing update code needs no change. -->
+                    <div class="description-stack">
+                        <div class="description-panel">
+                            <h3>description</h3>
+                            <p id="decoder-description">
+                                The toric code with RGB cellular automaton decoder uses three types of messages (Red, Green, Blue)
+                                to coordinate error correction on a 2D torus.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- TASK 4aq: stats box (moved from the left column) stacked
+                         above the canvas legend, both anchored top-right so they
+                         never overlap regardless of how many stat rows or
+                         legend items are currently shown. All stat-row element
+                         ids are unchanged -- main.js keeps updating them the
+                         same way regardless of where this markup lives. -->
+                    <div class="overlay-stack">
+                        <div class="info-panel">
+                            <h3>state</h3>
+                            <div class="stat-row">
+                                <span>step:</span>
+                                <span id="step-count">0</span>
+                            </div>
+                            <div class="stat-row" id="clock-row">
+                                <span>clock:</span>
+                                <span id="clock-value">0</span>
+                            </div>
+                            <div class="stat-row" id="defects-row">
+                                <span>defects:</span>
+                                <span id="syndrome-count">0</span>
+                            </div>
+                            <!-- TASK 4db: "errors" row removed from the state card
+                                 (getErrorCount() stays on every decoder for the
+                                 test harnesses; it's just no longer surfaced
+                                 here as a live number). -->
+                            <div class="stat-row" id="system-defects-row" style="display: none;">
+                                <span>system defects:</span>
+                                <span id="system-defects-count">0</span>
+                            </div>
+                            <div class="stat-row" id="decoder-defects-row" style="display: none;">
+                                <span>decoder defects:</span>
+                                <span id="decoder-defects-count">0</span>
+                            </div>
+                            <div class="stat-row" id="status-row">
+                                <span>status:</span>
+                                <span id="status-value">paused</span>
+                            </div>
+                        </div>
+
+                        <!-- Legend -->
+                        <div class="legend">
+                            <h3>legend</h3>
+                            <div class="legend-items" id="legend-content">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TASK 4ew: third grid column, a trial three-pillar layout behind
+             LAYOUT_THREE_PILLARS in main.js. display:none by default (see
+             .right-pillar in styles.css) so this is invisible and inert
+             whenever the flag is off. When the flag is on,
+             setupThreePillarLayout() (main.js, called once from
+             DOMContentLoaded before the first render) moves the existing
+             #info-panel/.legend/.description-panel nodes here from their
+             current homes inside .canvas-area's two overlay stacks --
+             same elements, same ids/classes main.js already reads and
+             updates, no duplicates. Left empty in the markup itself. -->
+        <div class="right-pillar" id="right-pillar"></div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+
+</html>

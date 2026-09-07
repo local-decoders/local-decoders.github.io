@@ -1,0 +1,1532 @@
+/* === CA Decoder Visualizer — Light Scientific Theme === */
+
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap');
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* TASK 4du: reserves the vertical scrollbar's own gutter unconditionally,
+   on every page load, regardless of whether THIS particular tab's content
+   is tall enough to actually need it. Without this, whether the browser's
+   page-level scrollbar is present at all varies by decoder/noise settings
+   (a tab whose right-column diagram is short enough to fit inside the
+   viewport gets no scrollbar; a taller one does) -- and since a visible
+   scrollbar carves its own width out of the viewport before .container's
+   `max-width: 1500px; margin: 0 auto;` centres it, .container's centred
+   position (and everything inside its 260px/1fr grid) shifts left by half
+   the scrollbar's width exactly when one appears. `stable` reserves that
+   gutter at all times instead, so the available width for centring never
+   depends on this tab's own content height. `scrollbar-gutter` only takes
+   effect on a box that's actually a scroll container, which requires an
+   explicit non-`visible` `overflow-y` -- `html`'s own default (`visible`)
+   doesn't count for this property even though the viewport still scrolls
+   under it by ordinary UA behaviour (confirmed live: without this
+   overflow-y line, tabs whose content exactly filled the viewport with no
+   genuine overflow -- repetition2/toric2/surface2/haah at 1600x1100 --
+   kept 0 gutter reserved while the genuinely-overflowing tabs got 15px,
+   reproducing the exact shift this task exists to remove). `auto` (not
+   `scroll`) keeps the thumb itself hidden unless a tab's content actually
+   overflows -- only the reserved space is unconditional. */
+html {
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+
+:root {
+    /* Palette — light mode, blue accent */
+    --bg-deep: #f4f5f7;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f0f2f5;
+    --bg-surface: #fafafa;
+    --border: #dfe3ea;
+    --border-light: #c9cfd8;
+    --accent: #5b9bd5;
+    --accent-dim: rgba(91, 155, 213, 0.12);
+    --accent-glow: rgba(91, 155, 213, 0.06);
+    --text: #374151;
+    --text-bright: #111827;
+    --text-dim: #6b7280;
+    --text-muted: #9ca3af;
+    --error-red: #dc2626;
+    --warning-amber: #d97706;
+
+    /* Spacing */
+    --sp-1: 0.25rem;
+    --sp-2: 0.5rem;
+    --sp-3: 0.75rem;
+    --sp-4: 1rem;
+    --sp-5: 1.25rem;
+    --sp-6: 1.5rem;
+    --sp-8: 2rem;
+
+    /* Radii */
+    --r-sm: 4px;
+    --r-md: 6px;
+    --r-lg: 10px;
+
+    /* Mono stack */
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --font-serif: 'Crimson Pro', 'Georgia', serif;
+}
+
+/* ---- dot-matrix texture on body ---- */
+body {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+    background-color: var(--bg-deep);
+    background-image:
+        radial-gradient(circle, rgba(91, 155, 213, 0.06) 1px, transparent 1px);
+    background-size: 24px 24px;
+}
+
+/* ---- Grid layout ---- */
+.container {
+    /* TASK 4em: was a flat 1500px -- now sized to exactly match
+       .visualization-container's own new max-width (1002px, see that
+       rule's own comment) plus everything else this grid's own second
+       row needs alongside it: this rule's own left+right padding (2 *
+       var(--sp-5) = 40px), the pillar's own fixed 260px column, and the
+       column-gap between the two columns (var(--sp-4) = 16px) -- 40 +
+       260 + 16 + 1002 = 1318. Verified empirically, not just via that
+       arithmetic: 1278 (the same sum minus this padding) and 1298 both
+       left .visualization-container short of its own 1002px cap, and so
+       the canvas short of its own 900px; 1318 is the exact point both
+       reach it. margin: 0 auto below (unchanged) is what actually
+       centres the now-narrower pillar+panel block under the header,
+       which keeps its own separate centring untouched (that heading and
+       hairline live in a sibling element with no max-width of its own).
+       Below this cap the grid keeps shrinking with the viewport exactly
+       as before -- a max-width is only ever a ceiling, and this one
+       binds at a wider viewport now than 1500px used to, not narrower. */
+    /* TASK 4ep: +40px in lockstep with .visualization-container's own
+       max-width just below (1002 -> 1042) and applyCanvasSize()'s own
+       900 -> 940 canvas cap -- 1318 + 40 = 1358, verified empirically the
+       same way TASK 4em's own 1318 was. */
+    max-width: 1358px;
+    margin: 0 auto;
+    padding: var(--sp-5);
+    /* TASK 4ca addition: top padding cut (sp-5, 20px -> ...) so the page
+       title, its hairline, and everything below (the whole two-column
+       content row too, not just the header) shift up together by that
+       amount -- unlike the other 4by/4ca title-spacing tweaks, nothing
+       here is compensated to hold anything else fixed; the whole page
+       just starts higher. TASK 4cc: corrected to a 3px total trim (17px),
+       not the original 6px (14px). TASK 4cf: another 3px trim (14px).
+       TASK 4ch: another 2px trim (12px). TASK 4ck: another 2px trim
+       (10px). TASK 4cl: another 2px trim (8px). TASK 4cs: another 2px
+       trim (6px). Left/right/bottom padding (still sp-5) are untouched. */
+    padding-top: 6px;
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    grid-template-rows: auto minmax(650px, 1fr);
+    /* TASK 4bo: row-gap and column-gap split out of the old single `gap`
+       shorthand so the vertical gap above the columns can shrink on its
+       own, without also narrowing the horizontal gap between the control
+       panel and the right column. */
+    row-gap: var(--sp-3);
+    column-gap: var(--sp-4);
+    min-height: 100vh;
+    align-items: start;
+}
+
+/* ---- Header ---- */
+/* TASK 4bk: no border here any more -- the title's own blue hairline
+   (.title::after) is the only rule under the title block now. The 1px
+   this border used to contribute to the header's height is kept as
+   margin-bottom instead, so the gap above the columns below is unchanged
+   pixel-for-pixel; margin paints nothing, so no second (grey) line shows.
+   TASK 4bo: the full page-top-to-title gap is this padding-top PLUS
+   .container's own sp-5 (20px) top padding, which stays untouched here
+   (shrinking it would also tighten the page's left/right/bottom outer
+   margins, well beyond "space above the title") -- so padding-top drops
+   further than a literal third of itself, from sp-6 (24px) to sp-2
+   (8px), landing the combined, actually-visible gap at about a third
+   less overall (44px -> 28px). Bottom padding cut from sp-4 (16px) to
+   sp-2 (8px); the title block itself and the hairline's own margin
+   (below) are untouched; margin-bottom stays 1px, still standing in for
+   the border 4bk removed rather than shrinking further. Combined with
+   the container's row-gap cut above, the header-bottom-to-columns gap
+   goes from 33px to 21px, also about a third less. */
+.header {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: var(--sp-2) var(--sp-6) var(--sp-2);
+    margin-bottom: 1px;
+}
+
+/* TASK 4bj: two balanced lines (a <br> in the markup, at the natural
+   clause break) instead of one long line wrapping wherever the viewport
+   happens to force it -- width: fit-content + margin: 0 auto shrinks the
+   title to its own widest line's rendered width and re-centers that
+   (rather than the plain block-level, full-header-width centring
+   text-align on .header alone gave it), so the hairline rule below can
+   span exactly that width, not the whole header. Letter-spacing tightened
+   slightly (-0.02em -> -0.03em); font-size and serif face unchanged --
+   two lines at 2.2rem read as deliberate rather than heavy once balanced
+   like this, not oversized. */
+.title {
+    font-family: var(--font-serif);
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+    width: fit-content;
+    /* TASK 4by addition: nudged down 6px (added here) while the hairline
+       below (.title::after) loses the same 6px from its own top margin,
+       so the hairline and everything below it stay exactly where they
+       were -- only the gap between the title and the hairline shrinks. */
+    margin: 6px auto 0;
+}
+
+/* A hairline the full width of the (now shrink-to-fit) title block,
+   rather than the old fixed 60px stub centred under the whole header --
+   reads more like a title-block rule than a decorative underline, which
+   suits two lines better than trying to centre a short accent under just
+   the second one (the two lines are quite different lengths). More space
+   above it than before (var(--sp-4) instead of var(--sp-3)) now that
+   there's a second line's descenders to clear first. */
+.title::after {
+    content: '';
+    display: block;
+    width: 100%;
+    height: 1px;
+    background: var(--accent);
+    /* TASK 4by addition: top margin cut by the same 6px .title's own new
+       margin-top added (var(--sp-4), 16px -> 10px), so the hairline's
+       absolute position is unchanged even though the title above it
+       moved down. */
+    margin: 10px auto 0;
+}
+
+.subtitle {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-top: var(--sp-2);
+    letter-spacing: 0.04em;
+}
+
+/* ---- Description card (TASK 4bv) ----
+   No longer a full-width box above the visualisation -- now a narrow
+   overlay card at the canvas-area's top-left, the mirror of the
+   state/legend stack at top-right. .description-panel's own box styling
+   (background/border/border-radius/padding) and heading style are folded
+   into the shared rules below (with .legend/.info-panel) so all three
+   overlay cards can never visually drift apart; only text-align and the
+   paragraph's own type styling stay specific to this card. */
+.description-panel {
+    text-align: left;
+}
+
+.description-panel p {
+    font-size: 0.7rem; /* matches .info-panel's own body text size */
+    color: var(--text-dim);
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* TASK 4cj: repetition2's description now has a real Z<sub>i</sub>
+   subscript (innerHTML, not textContent -- see main.js). The default
+   user-agent `sub` (smaller font + vertical-align: sub) can otherwise
+   inflate the line box it sits in, since its own line-height still
+   contributes at the *un*-shrunk font size unless overridden -- zeroing
+   it here removes that contribution while vertical-align still visibly
+   lowers the glyph, so it drops into the line without stretching it. */
+.description-panel sub {
+    font-size: 0.8em;
+    line-height: 0;
+}
+
+/* TASK 4cl-amend-5: repetition2's stabilizer expression is wrapped in
+   <span class="nobreak">...</span> (main.js) so it can never be split
+   across a line wrap inside the narrow description card -- the visible
+   text is unchanged, this only constrains where line breaks may fall. */
+.description-panel .nobreak {
+    white-space: nowrap;
+}
+
+/* Positions the description card at the canvas-area's top-left, mirroring
+   .overlay-stack's top-right placement with the same top/side inset
+   (var(--sp-4) / var(--sp-8)) -- see that rule below for why both need
+   position:relative on .canvas-area as their containing block, not
+   .visualization-container. max-width keeps it a narrow column so it
+   reads next to the graphic rather than over it -- checked with a direct
+   canvas pixel-data comparison (not just eyeballing a screenshot) on
+   repetition2, surface_streaming_3d, and haah: at the originally-asked
+   ~220px, the card's own right edge landed pixel-for-pixel on top of
+   where repetition2's history-box grid begins (its left margin is
+   narrower than assumed), so this is 180px instead, which clears the
+   grid on every checked tab with a comfortable margin. */
+.description-stack {
+    position: absolute;
+    /* TASK 4cc: top cut from var(--sp-4) (16px) to 2px, matching
+       .overlay-stack's own new top (see that rule for why a canvas-area
+       margin-top can't be the mechanism here without also pushing
+       repetition2's history box, which is already correctly positioned,
+       up into the title). TASK 4cc addition: +40px on top of that (42px
+       total) so the description card sits well below the state/legend
+       stack's own level instead of matching it. TASK 4cf: another +80px
+       (122px total) -- unlike .overlay-stack's own top, this one did not
+       move in lockstep with repetition2.js's topGap change. TASK 4cg:
+       another +60px (182px total), left inset unchanged. TASK 4cl:
+       another +2px (184px total), in lockstep with the other two right
+       here (topGap and .overlay-stack's own top). */
+    top: 184px;
+    /* TASK 4by: nudged left another 8px (sp-8, 32px -> sp-6, 24px). TASK
+       4ca: nudged left another 8px again (sp-6, 24px -> sp-4, 16px). TASK
+       4cc: nudged left another 8px again (sp-4, 16px -> sp-2, 8px) -- the
+       right-hand .overlay-stack moved the other way instead (see its own
+       rule), not in lockstep with this one. */
+    left: var(--sp-2);
+    z-index: 2;
+    max-width: 180px;
+}
+
+/* ---- Decoder subtitle (hidden — using description-panel instead) ---- */
+.decoder-subtitle {
+    display: none;
+}
+
+/* ---- Control Panel ---- */
+.control-panel {
+    grid-column: 1;
+    grid-row: 2;
+    /* TASK 4du: explicit, matching .container's own 260px grid track
+       exactly -- belt-and-suspenders alongside that fixed track (which
+       already can't be resized by content on its own, since it's a plain
+       px value, not `auto`/`min-content`) so nothing inside this column
+       (a long dropdown option, a wide extra-param control, ...) can ever
+       influence this column's width by any indirect route. Reset back to
+       100% inside the max-width:1024px breakpoint below, where
+       .container's own template collapses to a single 1fr column and this
+       panel is meant to stretch full-width instead. */
+    width: 260px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    /* TASK 4ef: this panel is its own scroll container (bounded by
+       max-height + overflow-y:auto below), separate from the page-level
+       one TASK 4du already stabilised -- whenever a tab's own parameter
+       list is tall enough to need it (or the viewport is short enough),
+       ITS OWN scrollbar appears and eats into the space available for
+       every child control (the select, the size/error-prob inputs, the
+       clock-period slider, ...), which all stretch to 100% of this
+       element's own padding-box. scrollbar-gutter: stable below reserves
+       that space unconditionally (measured live: exactly 5px, matching
+       this panel's own custom-styled ::-webkit-scrollbar width further
+       down this file, NOT the browser's default/unstyled width -- stable
+       reserves whatever width the actual scrollbar would actually use),
+       so every tab now has the SAME available content width whether or
+       not it happens to overflow today. Right padding cut from the
+       shared var(--sp-3) (12px) to 7px -- exactly 5px less -- so that
+       reserved gutter comes entirely out of padding that used to sit
+       empty on a non-overflowing tab, and every child control keeps
+       EXACTLY the width it has today on such a tab (234px, measured
+       live before this change) rather than landing 5px narrower on
+       every tab now that the gutter is always reserved. Left/top/bottom
+       padding untouched -- the scrollbar (and so the gutter) only ever
+       sits on this side. */
+    padding: var(--sp-3) 7px var(--sp-3) var(--sp-3);
+    height: fit-content;
+    position: sticky;
+    top: var(--sp-5);
+    max-height: calc(100vh - 2.5rem);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    z-index: 10;
+}
+
+.control-group {
+    margin-bottom: var(--sp-3);
+    padding-bottom: var(--sp-3);
+    border-bottom: 1px solid var(--border);
+}
+
+.control-group:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+/* TASK 4dj (superseded by TASK 4dn below): #extra-params-container
+   (index.html) is a bare wrapper div that renderExtraParams() (main.js)
+   fills with one .control-group per extraParam entry -- its own children
+   form a sibling list scoped to it, separate from .control-panel's own,
+   so .control-group's :last-child rule above never reaches into it.
+   TASK 4dn reordered the left column so #extra-params-container is now
+   always the LAST element in the DOM (previously "initial errors"
+   followed it) -- meaning this rule's old job (giving it a trailing
+   divider, since :last-child couldn't) would now be actively wrong: a
+   section that's genuinely last needs NO trailing divider at all. The
+   rule above stays dead/unreachable for the same structural reason
+   :last-child was here (#extra-params-container is a bare div, not a
+   .control-group), which is fine -- nothing needs it to match any more.
+
+   TASK 4dn: with #extra-params-container fixed as the last DOM element,
+   exactly one of three sections can be the actual last VISIBLE one, and
+   which one varies per decoder: #extra-params-container itself whenever
+   it has any extraParams, otherwise the "mode" .control-group
+   (#uncoordinated-row) whenever config.uncoordVariant is true, otherwise
+   the "clock period" .control-group (always visible, so it's the
+   fallback). Neither "mode" nor "clock period" is ever a real DOM
+   :last-child any more either, for the same reason -- #extra-params-
+   container always structurally follows them, empty or not -- so which
+   one needs its divider suppressed can't be expressed in pure CSS
+   through the display:none/empty gaps involved; main.js's
+   updateSectionDividers() (called from renderExtraParams(), which every
+   code path that could change any of these three sections' visibility
+   already calls) toggles this class onto exactly the right one instead. */
+.control-group.last-visible-section {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.control-label {
+    display: block;
+    font-weight: 500;
+    color: var(--text-dim);
+    margin-bottom: var(--sp-1);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+
+.control-input {
+    width: 100%;
+    padding: var(--sp-1) var(--sp-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-bright);
+    background: var(--bg-surface);
+    transition: border-color 0.2s ease;
+}
+
+.control-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+select.control-input {
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7280'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 24px;
+}
+
+select.control-input option {
+    background: var(--bg-card);
+    color: var(--text);
+}
+
+/* TASK 4al: general_cc's multi-line code-spec textarea -- inherits
+   control-input's border/background/focus styling for free; this just
+   sizes it to something readable instead of shrinking to its `rows`
+   attribute's cramped default. */
+textarea.control-input {
+    min-height: 4.5em;
+    font-family: var(--font-mono);
+}
+
+/* ---- Sliders ---- */
+.slider-container {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+}
+
+.slider {
+    flex: 1;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--border);
+    outline: none;
+    -webkit-appearance: none;
+}
+
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    transition: box-shadow 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+.slider::-webkit-slider-thumb:hover {
+    box-shadow: 0 0 8px var(--accent-dim);
+}
+
+.slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: none;
+}
+
+.slider-value {
+    min-width: 2.4em;
+    text-align: center;
+    font-weight: 500;
+    color: var(--accent);
+    font-size: 0.75rem;
+    background: var(--accent-dim);
+    padding: 2px var(--sp-2);
+    border-radius: var(--r-sm);
+}
+
+/* TASK 4ap: the speed/clock-period badges are now editable inputs (the
+   splitting-period one stays a plain read-only span, untouched) -- strip
+   the native input chrome so they still read as the same compact badge,
+   with a visible focus ring while editing. TASK 4at switched them from
+   type="number" to type="text" (see main.js) so non-numeric text like
+   "abc" can be typed and shown at all -- type="number" silently discards
+   it at the browser's own DOM layer, before any JS ever sees it. */
+/* TASK 4aw: becoming plain text inputs (TASK 4at) let the browser's own
+   default text-field sizing take over instead of the shared
+   .slider-value min-width, visibly widening the badge -- pin an explicit
+   width sized for three digits instead, and right-align the digits
+   (rather than the shared class's centred text) since the value is now
+   edited in place, not just displayed. */
+input.slider-value {
+    border: none;
+    font-family: inherit;
+    -moz-appearance: textfield;
+    min-width: 0; /* override the shared .slider-value's 2.4em floor -- width below controls this instead */
+    /* TASK 4bs: the shared .slider-value rule's padding (2px var(--sp-2),
+       i.e. 8px left/right) still left right-aligned digits reading flush
+       against the badge's rounded corner -- nudge just the right side in
+       another var(--sp-1) (4px, to 12px total) so the text ends a few
+       pixels short of the edge; kept right-aligned (matching the numeric
+       right-alignment used elsewhere, e.g. the state card's values)
+       rather than switching to centred text. The box widens by that same
+       var(--sp-1) (5.5ch -> 5.5ch + 4px) so the available text width for
+       three digits is unchanged from before -- padding alone, with the
+       old fixed 5.5ch, left "100" (speed's own max) too wide for its
+       shrunken content box and visibly clipped/scrolled internally. */
+    width: calc(5.5ch + var(--sp-1));
+    /* TASK 4cn: left-aligned like a normal text input instead of
+       right-aligned, with the same left padding as .control-input's own
+       (var(--sp-2), 8px) -- pinned explicitly here rather than left to
+       inherit from the shared .slider-value rule's `padding: 2px
+       var(--sp-2)` shorthand above (which happens to already match, but
+       shouldn't have to for this to hold). Box width is untouched;
+       padding-right (var(--sp-3), unchanged) is now just inert trailing
+       space past the last digit rather than right-edge breathing room,
+       harmless either way. */
+    text-align: left;
+    padding-left: var(--sp-2);
+    padding-right: var(--sp-3);
+}
+
+input.slider-value::-webkit-inner-spin-button,
+input.slider-value::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input.slider-value:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* ---- Radio & Checkbox ---- */
+.radio-group,
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.radio-label,
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 2px var(--sp-2);
+    border-radius: var(--r-sm);
+    transition: background 0.15s ease;
+    font-size: 0.78rem;
+}
+
+.radio-label:hover,
+.checkbox-label:hover {
+    background: var(--bg-card-hover);
+}
+
+.radio-label input,
+.checkbox-label input {
+    margin-right: var(--sp-2);
+    cursor: pointer;
+    accent-color: var(--accent);
+}
+
+.radio-label span,
+.checkbox-label span {
+    color: var(--text);
+}
+
+/* TASK 4eu: a disabled radio (e.g. "manual" on the phenomenological
+   tabs, kept visible instead of hidden -- see loadDecoder()'s own
+   noManualPlacement handling in main.js) reads as muted/unselectable
+   rather than a normal clickable option -- same opacity/cursor pair
+   .btn:disabled already uses elsewhere, for one consistent "disabled"
+   look across the page. The hover background is suppressed too, so a
+   disabled option never LOOKS interactive on mouseover. */
+/* Display checkboxes share the manual radio's muted disabled treatment. */
+.radio-label:has(input:disabled),
+.checkbox-label:has(input:disabled) {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.radio-label:has(input:disabled):hover,
+.checkbox-label:has(input:disabled):hover {
+    background: none;
+}
+
+.radio-label input:disabled,
+.checkbox-label input:disabled {
+    cursor: not-allowed;
+}
+
+/* ---- Buttons ---- */
+.button-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--sp-1);
+}
+
+/* Five equal transport buttons share one full-width row. Height is set
+   from TRANSPORT_BUTTON_HEIGHT_PX in main.js; other rows keep their size. */
+.transport-row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: var(--sp-1);
+}
+
+.transport-row .btn {
+    min-width: 0;
+    padding: 0;
+    letter-spacing: 0;
+    font-variant-emoji: text;
+    /* No focus ring, including when a boundary shortcut leaves focus here. */
+    outline: none;
+}
+
+.btn {
+    padding: var(--sp-1) var(--sp-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.btn-primary:hover {
+    background: #4a8bc4;
+    box-shadow: 0 2px 8px var(--accent-dim);
+}
+
+.btn-secondary {
+    background: var(--bg-surface);
+    color: var(--text);
+}
+
+.btn-secondary:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-light);
+}
+
+.btn:active {
+    transform: scale(0.97);
+}
+
+.btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* ---- Info / Stats Panel ---- */
+/* TASK 4ax: every row is now a fixed two-column grid (label column, value
+   column, fixed gap) instead of flex space-between, so the card's own
+   width is constant regardless of which rows are present or how long
+   their values get -- previously the card auto-sized to its widest row,
+   and since the whole overlay-stack is right-anchored (align-items:
+   flex-end), a longer "status" value (e.g. "running" vs "paused") made
+   the card itself wider, which shifted the card's LEFT edge -- and every
+   label with it -- even though the right edge (where values sit) stayed
+   put. Column widths are sized from real rendered measurements, not
+   character counts: 116px comfortably fits the longest label
+   ("residual defects:", measured 114px), 70px comfortably fits the
+   longest *common* value ("horizontal", measured 67px; also comfortably
+   fits step/defect/error counts up to 5 digits, measured 39px) and
+   status values (all <=47px). Two rarer logical-error descriptions
+   ("horizontal & vertical", "residual majority flipped" from
+   repetition_streaming) measure wider than that and would need a much
+   wider card to show in full -- deliberately not accommodated, since
+   that would reopen the canvas-overlap issue TASK 4aq's overlay-stack
+   max-width was tuned to fix; they still degrade gracefully via the
+   logical-error row's own ellipsis handling below, unchanged from before
+   this task. */
+.info-panel {
+    /* TASK 4ab: the "Data" heading is gone, so top/bottom padding is now
+       symmetric (was var(--sp-2) top/bottom with the heading's own
+       margin-bottom providing extra clearance under it; bumped to
+       var(--sp-3) so the first row isn't flush against the top border).
+       TASK 4aq: now a top-right overlay card over the canvas (moved from
+       the left column) -- padding trimmed back down (to var(--sp-2)) as
+       part of the same "shrink the card" pass as .legend below, since on
+       the widest-canvas tabs (Haah's code) this card's own top-left corner
+       is what still clips a sliver of the z-slice panel next to it, not
+       the legend beneath it.
+       TASK 4bc(1) delta: this card is now the grid container itself
+       (grid-template-columns: max-content <fixed>), not each .stat-row
+       independently -- a shared grid across every row is required for
+       the label column to actually align between rows while still being
+       sized by max-content (an independent per-row grid would size each
+       row's label column to only that row's own label, defeating the
+       whole point). Each .stat-row becomes display:contents below,
+       hoisting its two <span> children in as direct items of *this*
+       grid, one row of the auto-flow each, rather than nesting its own
+       grid. max-content only measures currently-participating (not
+       display:none) items, so the label column comes out exactly as
+       wide as the longest label actually visible on the current tab --
+       "residual defects:" on the streaming tabs that show that row,
+       something much shorter everywhere else -- with no per-tab JS
+       measurement needed at all. width: fit-content (redundant with how
+       a non-stretched flex item already shrinks to its content in
+       .overlay-stack, but explicit for clarity) lets the whole card
+       narrow to match.
+       TASK 4bi: background/border/border-radius/padding now shared with
+       .legend (see that rule) so the two top-right cards look identical
+       apart from content -- background and padding moved to the legend's
+       own values (semi-transparent + blur reads better as a floating
+       overlay on top of live canvas drawing than this card's previous
+       opaque one did; the legend's own asymmetric padding was dropped in
+       favour of this card's tighter symmetric one instead, keeping the
+       narrowing work from TASK 4bc/4bg rather than reopening it). */
+    display: grid;
+    /* Value column fixed (not max-content) at the widest possible common
+       status value -- TASK 4bg reverted the status word from "logical
+       error" back to "failure" (measured 47px at its actual bold weight,
+       same as "success"/"timeout"/"running"; "paused" and 5-digit counts
+       are both shorter still), so the column shrank to 60px, comfortably
+       past all of those with a small margin. */
+    grid-template-columns: max-content 60px;
+    column-gap: var(--sp-1);
+    row-gap: 2px; /* was each row's own 1px 0 padding -- moot once .stat-row is display:contents (no box to pad), so the vertical spacing moves here */
+    width: fit-content;
+    font-size: 0.7rem;
+}
+
+.stat-row {
+    display: contents;
+}
+
+.stat-row span:first-child {
+    color: var(--text-dim);
+    white-space: nowrap;
+    /* No overflow/ellipsis/min-width needed on this side any more -- a
+       max-content column is by definition exactly as wide as its widest
+       participating item, so nothing assigned to it can ever overflow. */
+}
+
+.stat-row span:last-child {
+    font-weight: 500;
+    color: var(--text-bright);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    min-width: 0; /* the value column is still a fixed width, so this side keeps its overflow guard (e.g. repetition_streaming's rare long logical-error description) */
+}
+
+/* TASK 4af: the logical-error row's own description can run much longer
+   than any other row's value (see the .info-panel comment above) --
+   elide it with an ellipsis rather than letting it overflow or force the
+   fixed value column wider. */
+#logical-error-row span:last-child {
+    text-overflow: ellipsis;
+}
+
+/* ---- Visualization ---- */
+/* ---- Right Column: visualisation on top, description panel below,
+   same width, stacked with the container's own gap ---- */
+.right-column {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    min-width: 0; /* allow the grid track to shrink below the canvas's intrinsic width */
+}
+
+/* TASK 4ew: third grid column, a trial layout behind LAYOUT_THREE_PILLARS
+   (main.js). Hidden by default -- every rule that actually shows/sizes it
+   lives in the body.layout-three-pillars-scoped block below
+   .visualization-container's own max-width rule, so the flag-off layout
+   (this rule, .container's base 2-column template, and
+   .visualization-container's base 1042px cap) is completely untouched. */
+.right-pillar {
+    display: none;
+}
+
+.visualization-container {
+    /* position:relative kept here (not just on .canvas-area below) --
+       haah.js's enable3DMode() appends its #combined-view 3D overlay
+       (TASK 4ex: the right-hand 2D slice panel it used to sit beside is
+       gone -- one full-size Three.js view now) as a direct child of
+       .visualization-container itself (position:absolute; inset:0), a
+       sibling of .viz-title and .canvas-area, not a descendant of
+       .canvas-area. Without a positioned ancestor here, inset:0 would resolve against the
+       viewport instead of this card. */
+    position: relative;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--sp-5);
+    /* TASK 4cc: TASK 4by/4ca had cut the top padding to 0 (and tightened
+       .viz-title's own line-height below) to move the decoder title up --
+       the user's correction is that the title itself must not move at
+       all, so both of those are reverted here; padding is back to the
+       plain, uniform var(--sp-5) on all four sides it always had before
+       4by. The actual "move things up" request now lands on
+       .overlay-stack/.description-stack's own `top` and repetition2.js's
+       own topGap instead (not a negative margin-top here, which would
+       also drag the canvas element and hence the history box inside it --
+       see .overlay-stack's own comment for why), which moves the canvas
+       graphic and every overlay card without touching the title's own
+       position. */
+    min-height: 650px;
+    /* TASK 4em: without this, .right-column's own 1fr grid track (see
+       .container below) stretches this card to fill however wide the
+       viewport leaves it -- 1184px at 1600px wide -- even though its own
+       content (the canvas, capped at 900px by applyCanvasSize() in
+       js/main.js, plus this card's own padding) never needs more than
+       1002px. That 1002px isn't just "canvas width (900) + padding
+       (40)" (942) -- applyCanvasSize()'s own `maxWidth =
+       container.clientWidth - 100` means the canvas itself only reaches
+       its full 900px once this card's own clientWidth is at least 1000,
+       i.e. a border-box width of 1002 (clientWidth excludes this card's
+       own 1px border on each side). Verified empirically (not just via
+       that arithmetic): 1001px still leaves the canvas one pixel short
+       of 900; 1002px is the exact point it first reaches exactly 900,
+       confirmed with logging before this was set as a fixed rule here.
+       Below this cap the card keeps shrinking with the viewport exactly
+       as before (a max-width is only ever a ceiling) -- .container's own
+       max-width below is capped in lockstep so the whole two-column grid
+       shrinks to match instead of leaving this card's own new ceiling
+       floating in unused space within a still-wide .right-column.
+    */
+    /* TASK 4ep: +40px, in lockstep with .container's own max-width above
+       and applyCanvasSize()'s own 900 -> 940 canvas cap: 1002 + 40 =
+       1042, so applyCanvasSize()'s maxWidth = clientWidth - 100 reaches
+       exactly 940 at the same point this card's own border-box width
+       reaches 1042 (clientWidth 1040, matching the same -2px-for-borders
+       relationship TASK 4em's own 1002/900 pair had). Verified
+       empirically the same way. */
+    max-width: 1042px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* TASK 4ew: the three-pillar trial layout, entirely scoped under this one
+   body class (set by main.js's setupThreePillarLayout() only when
+   LAYOUT_THREE_PILLARS is true) so every rule above stays exactly as it
+   was for the flag-off case -- nothing here is a modification of an
+   existing selector, only additional, higher-specificity overrides that
+   apply solely under this ancestor class. */
+
+body.layout-three-pillars .container {
+    /* TASK 4ew-b correction: the pillar must not be carved out of the
+       centre panel -- keeping the page at the two-column layout's own
+       1358px total shrank the panel to 786px (canvas 744, repetition
+       cells around 8.5px, well under the flag-off baseline's cell 10).
+       Widening the page instead: 40 (this rule's own left+right padding)
+       + 260 (left pillar) + 16 (gap) + 988 (the panel's own new cap, see
+       .visualization-container's override just below) + 16 (gap) + 240
+       (right pillar) = 1560. At 1600px wide the rendered area (1585px,
+       .container's own scrollbar-gutter included) still fits within the
+       1600px viewport with the block centred under the title; below
+       1560px the grid's own `1fr` panel track is still what shrinks
+       first, exactly like the two-column layout above. */
+    grid-template-columns: 260px 1fr 240px;
+    max-width: 1560px;
+    /* Keep the page's min-height slack out of the content-sized rows. */
+    grid-template-rows: auto auto;
+    align-content: start;
+    align-items: stretch;
+}
+
+body.layout-three-pillars .control-panel,
+body.layout-three-pillars .right-pillar {
+    /* TASK 4fj: side contents must not size the auto row. The percentage
+       minimum resolves after the centre sets the row height, filling it
+       while taller contents scroll inside the existing stable gutters. */
+    height: 0;
+    min-height: 100%;
+}
+
+body.layout-three-pillars .right-column {
+    align-self: start;
+}
+
+body.layout-three-pillars .visualization-container {
+    /* TASK 4ew-b: 1560 - 40 - 260 - 16 - 16 - 240 = 988 (see .container's
+       own override above for the full arithmetic) -- restores the centre
+       panel (and so the canvas, which fills its full inner width via
+       applyCanvasSize() in main.js) to close to its flag-off-baseline
+       width instead of the 786px TASK 4ew's own first pass had shrunk it
+       to, which had also visibly narrowed repetition2's cell size. */
+    max-width: 988px;
+    /* The centre panel's natural content height sets the common row. */
+    flex: none;
+}
+
+body.layout-three-pillars .canvas-area {
+    /* Preserve the canvas's existing position within the natural panel. */
+    align-items: flex-start;
+}
+
+/* The right pillar itself: same background/border/radius/padding/scroll
+   behaviour/gutter treatment as .control-panel (the left pillar's own
+   card), so the two read as a matched pair -- see that rule's own TASK
+   4du/4ef comments for why each of these specific properties is there. */
+body.layout-three-pillars .right-pillar {
+    display: flex;
+    flex-direction: column;
+    /* flex-start (not the flex default, stretch): the state/legend cards
+       keep their own natural (fit-content) width, exactly as they have
+       today in .overlay-stack -- only .description-panel is explicitly
+       stretched to fill below, per this task's own (1). */
+    align-items: flex-start;
+    gap: var(--sp-2);
+    grid-column: 3;
+    grid-row: 2;
+    width: 240px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--sp-3) 7px var(--sp-3) var(--sp-3);
+    position: sticky;
+    top: var(--sp-5);
+    max-height: calc(100vh - 2.5rem);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    z-index: 10;
+}
+
+/* TASK 4hh: use the stretched state card's remaining width for values,
+   preserving the shared label column and each value's right edge. */
+body.layout-three-pillars .info-panel {
+    grid-template-columns: max-content minmax(0, 1fr);
+}
+
+body.layout-three-pillars #status-value {
+    /* Keep the shared grid unchanged. Longer statuses grow left into
+       the unused space beside "status:", even when "residual defects:"
+       determines the label column, without wrapping or widening the card. */
+    max-width: none;
+    min-width: max-content;
+    width: 100%;
+    justify-self: end;
+    white-space: nowrap;
+    overflow-wrap: normal;
+    overflow: visible;
+}
+
+/* The description card is the one card of the three that fills the
+   pillar's own inner width (this task's own (1)); state/legend are left
+   to .right-pillar's align-items:flex-start above. max-width:none clears
+   the base .description-stack wrapper's own 180px cap, which no longer
+   applies once this card is a normal flow child here instead of that
+   wrapper's descendant. */
+body.layout-three-pillars .right-pillar .description-panel {
+    align-self: stretch;
+    width: 100%;
+    max-width: none;
+}
+
+/* No card floats over the canvas under this layout -- both overlay
+   wrappers are left empty by setupThreePillarLayout() (their former
+   children moved into .right-pillar above) and explicitly hidden here
+   too, so neither one's own position:absolute/z-index can ever paint
+   anything (or intercept a pointer event) over the canvas, even
+   transiently before that move runs. */
+body.layout-three-pillars .overlay-stack,
+body.layout-three-pillars .description-stack {
+    display: none;
+}
+
+/* TASK 4bn: decoder title, moved here from the description box. Same
+   font/colour/size .description-panel h2 used to have (mono, 0.9rem,
+   500, accent colour, letter-spacing 0.06em) -- only the alignment and
+   spacing change, since it's now centred above the canvas instead of
+   left-aligned above the description paragraph. flex: 0 0 auto keeps it
+   at its natural height regardless of .canvas-area growing to fill the
+   rest of the card. */
+.viz-title {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    text-align: center;
+    /* TASK 4bq: cut by about half (sp-3, 12px -> 6px). TASK 4bw: cut the
+       remaining 6px to 0. The title itself never moves -- only this
+       bottom margin shrinks, which pulls the *whole* .canvas-area block
+       (canvas, .overlay-stack, and .description-stack, all still
+       anchored inside it exactly as before) up by the same amount, since
+       both overlay stacks are positioned relative to .canvas-area's top
+       edge, not the title's. This deliberately does NOT touch
+       repetition2.js's own internal layout budget (the margin above its
+       history box) -- doing that would move only the drawing inside the
+       canvas while leaving the overlay cards in place, which is exactly
+       what the user's 4bq clarification asked NOT to do. */
+    margin: 0;
+    /* TASK 4cc: TASK 4ca's explicit line-height: 19px (tightened from the
+       inherited body value to help move the title up) is reverted here --
+       the title must sit exactly where it was pre-4by, inherited
+       line-height included. See .visualization-container's padding-top
+       comment above and .overlay-stack's own `top` for where the "move
+       things up" request actually lives now instead. */
+    flex: 0 0 auto;
+}
+
+/* Containing block for .overlay-stack (position:relative moved here from
+   .visualization-container). Because the title above is a separate flex
+   row rather than sharing this box, the overlay's `top`/`right` anchor
+   always resolves against the canvas's own top-right corner -- it can
+   never overlap .viz-title, at any title length or canvas size, with no
+   JS-computed offset needed. */
+.canvas-area {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#main-canvas {
+    /* TASK 4av: no border of its own -- the canvas sits directly on the
+       visualization-container's own card background (both pure white),
+       which already has its own border framing the whole area, so a
+       second, roughly-concentric outline immediately around the canvas
+       was purely redundant. */
+    max-width: 100%;
+    max-height: 650px;
+    min-height: 500px;
+    background: white;
+}
+
+/* TASK 4aq: the stats box (moved here from the left column) and the canvas
+   legend are both anchored top-right, but their content heights vary
+   independently (stats gains rows for residual-defects/logical-error; the
+   legend's item count depends on the decoder) -- a single absolutely
+   positioned wrapper that stacks its two children in normal flow handles
+   that correctly with no JS-computed offsets, where two independently
+   `position: absolute` elements with a fixed vertical gap could not. */
+.overlay-stack {
+    position: absolute;
+    /* TASK 4cc: top cut from var(--sp-4) (16px) to 2px so this card's own
+       top edge lands close under the decoder title -- specifically NOT
+       via a negative margin-top on .canvas-area, which would also drag
+       repetition2's history box (already correctly positioned via its
+       own topGap) up into the title text; see the measurements in the
+       4cc report for why. TASK 4cf: moved down 6px (2px -> 8px), paired
+       with the same 6px added to repetition2.js's own topGap, so both
+       the card and the history box move down together and stay aligned
+       at the new ~10px-under-the-title target. TASK 4cg: another +3px
+       (8px -> 11px), again in lockstep with repetition2.js's topGap.
+       TASK 4cl: another +2px (11px -> 13px), again in lockstep. */
+    top: 13px;
+    /* TASK 4bj: nudged left ~8px (var(--sp-4), 16px -> var(--sp-6), 24px).
+       TASK 4bm: nudged left another ~8px (var(--sp-6), 24px -> var(--sp-8),
+       32px). TASK 4cc addition: nudged right a little (32px -> 28px, no
+       clean --sp-N token at 28 -- the scale jumps sp-6=24 to sp-8=32). top
+       is untouched by that specific nudge, so only the horizontal
+       position moved for it -- top itself changed separately, above. */
+    right: 28px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--sp-2);
+    max-width: 230px;
+}
+
+/* ---- Legend (HTML overlay) ---- */
+/* TASK 4bi: background/backdrop-filter/border/border-radius/padding
+   shared with .info-panel (the "state" card just above), so the two
+   top-right cards look identical apart from their content -- picked this
+   card's own background+blur as the reference (a floating overlay on top
+   of live canvas drawing reads better semi-transparent-and-blurred than
+   .info-panel's previous opaque one did) but .info-panel's own tighter,
+   symmetric padding as the reference for that property instead (this
+   card's own asymmetric var(--sp-2) var(--sp-3) would have partly
+   reopened the narrowing work TASK 4bc/4bg did there). min-width is gone
+   too -- TASK 4bg's syncLegendWidthToInfoPanel() now sets this card's
+   width to exactly match .info-panel's own rendered width in JS, and a
+   leftover CSS floor here could silently defeat that exact match on some
+   future tab whose stats card renders narrower than 128px. */
+.legend,
+.info-panel,
+.description-panel {
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--sp-2);
+}
+
+/* TASK 4bh: shared with .info-panel's own "state" heading below, so the
+   two top-right cards' headings can never drift apart under a future
+   edit to one of them. TASK 4bv: .description-panel's "description"
+   heading joins the same rule for the same reason. */
+.legend h3,
+.info-panel h3,
+.description-panel h3 {
+    font-size: 0.6rem;
+    font-weight: 500;
+    margin-bottom: var(--sp-1);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+/* .info-panel is a grid (see above), unlike .legend -- without this the
+   heading, as a lone item, would land in column 1 only, leaving column 2
+   of its row empty and shifting every following label/value pair over by
+   one column. Spanning both columns keeps it its own full row instead,
+   and (being far shorter than "defects:"/"status:") it never ends up
+   being what sizes the max-content label column either. */
+.info-panel h3 {
+    grid-column: 1 / -1;
+}
+
+.legend-items {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.legend-item {
+    display: flex;
+    /* TASK 4dz: flex-start (was center), paired with .legend-color's own
+       new margin-top below -- mathematically identical to center for
+       every row that's still a single line (the margin-top centres the
+       swatch within exactly one line-height, which for a one-line label
+       IS the row's whole height), but keeps the swatch pinned to the
+       FIRST line specifically once a label wraps to two (so far, only
+       "condensing boundary" at a narrow-enough legend width), rather than
+       centering across the whole wrapped block. */
+    align-items: flex-start;
+    gap: var(--sp-1);
+    font-size: 0.68rem;
+    color: var(--text);
+}
+
+/* TASK 4dz: lets the label spilling onto a second line and stops the row
+   forcing the legend card wider instead -- a flex item's default
+   min-width:auto equals its own content's single-line width, which
+   otherwise refuses to let it shrink (and so wrap) at all when the row is
+   narrower than that. No horizontal padding/indent added, so a wrapped
+   second line starts flush under the first line's own left edge, not
+   offset from it. */
+.legend-label {
+    min-width: 0;
+}
+
+.legend-color {
+    width: 11px;
+    height: 11px;
+    border-radius: 3px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    flex-shrink: 0;
+    /* TASK 4dz: centres this 11px-tall swatch within one line-height
+       (1lh) of the label beside it, i.e. within the FIRST line
+       specifically -- see .legend-item's own align-items comment above.
+       Shape variants with a different effective height (currently just
+       .hline) override this below with their own value. */
+    margin-top: calc((1lh - 11px) / 2);
+}
+
+/* Shape variants for legend symbols */
+.legend-color.circle {
+    border-radius: 50%;
+}
+
+.legend-color.cross {
+    position: relative;
+    background: transparent !important;
+    border: none !important;
+}
+
+.legend-color.cross::before,
+.legend-color.cross::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 12px;
+    height: 2px;
+    border-radius: 1px;
+}
+
+.legend-color.cross::before {
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.legend-color.cross::after {
+    transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.legend-color.wedge {
+    width: 0;
+    height: 0;
+    border: 7px solid transparent;
+    border-radius: 0;
+    background: transparent !important;
+}
+
+/* TASK 4bf: repetition2's defect glyph -- a radial gradient matching
+   drawOrb()'s own (white centre fading to the rim colour, set as this
+   item's plain background-color by the shared JS above; the gradient
+   here is a white-to-transparent overlay on top of it, so the rim colour
+   never needs to be known/duplicated in this CSS) plus a solid dark
+   outline (its own edgeColor, set inline, same as the message square). */
+.legend-color.orb {
+    border-radius: 50%;
+    background-image: radial-gradient(circle, #ffffff 0%, transparent 100%);
+}
+
+/* repetition2's error glyph -- a short horizontal string, matching the
+   site row's own error-string convention exactly (a coloured bar, not a
+   generic cross) at its own structurally-matched thickness (item.lineWidth,
+   applied as this element's height by the shared JS above). */
+.legend-color.hline {
+    width: 14px;
+    height: 2px; /* overridden per-item via item.lineWidth */
+    border-radius: 1px;
+    border: none !important;
+    /* TASK 4dz: overrides the base .legend-color's own 11px-tall
+       centring above -- this swatch's true height is only a few px (item.
+       lineWidth), so centring it as if it were 11px tall would sit it
+       visibly low against the label's first line. margin-top + height/2
+       always lands exactly at 1lh/2 (the label's own single-line centre,
+       matching the pre-4dz align-items:center result exactly) as long as
+       this reference matches the swatch's real rendered height -- 4px
+       specifically for "condensing boundary" (this shape's own
+       item.lineWidth here; measured live via getComputedStyle, not the
+       ~2.1px the "error" row's own item.lineWidth computes to), since
+       that is the one row long enough to ever actually wrap and need
+       this. The mismatch against "error"'s own shorter, never-wrapping
+       swatch is under a px and not visually distinguishable. */
+    margin-top: calc((1lh - 4px) / 2);
+}
+
+.legend-color.comet {
+    position: relative;
+}
+
+.legend-color.comet svg {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 1024px) {
+    .container,
+    body.layout-three-pillars .container {
+        grid-template-rows: auto;
+    }
+
+    .header { order: 0; }
+    .right-column { order: 1; }
+    .container > .info-panel { order: 2; }
+    .container > .legend { order: 3; }
+    .control-panel { order: 4; }
+    .container > .description-panel { order: 5; }
+
+    .container > .info-panel,
+    .container > .legend,
+    .container > .description-panel {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+        grid-column: 1;
+    }
+
+    .control-panel {
+        grid-row: auto;
+        max-height: none;
+        overflow: visible;
+        scrollbar-gutter: auto;
+    }
+
+    .control-panel:not(.controls-expanded) > :not(.narrow-controls-toggle) {
+        display: none !important;
+    }
+
+    .narrow-controls-toggle {
+        display: block;
+        width: 100%;
+        text-transform: none;
+    }
+
+    .controls-expanded .narrow-controls-toggle {
+        margin-bottom: var(--sp-3);
+    }
+
+    body.layout-three-pillars .right-pillar {
+        display: none;
+    }
+
+    .visualization-container > .transport-row {
+        flex-shrink: 0;
+        margin-top: var(--sp-2);
+        min-height: var(--narrow-touch-target, 40px);
+    }
+
+    button,
+    input,
+    select {
+        min-height: var(--narrow-touch-target, 40px);
+    }
+
+    #combined-view {
+        height: var(--narrow-canvas-height) !important;
+        margin-top: 0 !important;
+        min-width: 0;
+    }
+
+    .control-input,
+    .slider {
+        min-width: 0;
+    }
+
+    select.control-input {
+        width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .container {
+        grid-template-columns: 1fr;
+    }
+
+    .control-panel {
+        /* TASK 4du: the fixed 260px set above is scoped back to 100% here
+           -- .container's own template is a single 1fr column at this
+           breakpoint, and this panel is meant to stretch to fill it (the
+           pre-4du, unset-width behaviour), not stay pinned at the wide
+           layout's own fixed column width. */
+        width: 100%;
+        position: relative;
+        top: 0;
+    }
+
+    /* TASK 4dd: .right-column's own base rule (unconditional, not just at
+       this breakpoint) explicitly places it at grid-column: 2 -- with
+       .container's own explicit template collapsed to a single 1fr column
+       right above, that stale column-2 reference forces the grid to
+       create an IMPLICIT second column to hold it. `.header`'s own
+       `grid-column: 1 / -1` (meant to span the full width) only spans the
+       EXPLICIT grid per the CSS Grid spec -- negative line numbers count
+       from the end of the explicit template, never into implicitly
+       created tracks -- so at this breakpoint "-1" landed at the end of
+       the single explicit column, confining the title/hairline to just
+       that (narrow, left-hand) track instead of the full viewport width,
+       which is what made them read as off-centre and shrunken. Explicitly
+       returning .right-column to column 1 (the only explicit column here)
+       removes the implicit column entirely, so .header's 1/-1 span
+       reaches the true full width again. grid-row: auto lets it fall into
+       a freshly implicit row after .control-panel's own explicit row 2,
+       stacking the two panels instead of overlapping them (row 2, column
+       1 is already taken).
+       Scoped to this media query only -- the wide, two-column layout
+       above 1024px is completely untouched. */
+    .right-column {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    /* TASK 4ew: below this breakpoint all three columns stack, matching
+       the two-column layout's own collapse above -- needed as an
+       explicit override here because body.layout-three-pillars
+       .container's own grid-template-columns (outside this media query)
+       is a higher-specificity selector than the bare .container rule
+       just above, and would otherwise keep winning even at this narrow
+       a viewport. */
+    body.layout-three-pillars .container {
+        grid-template-columns: 1fr;
+    }
+
+    /* TASK 4fj: stacked pillars each size their own row from content. */
+    body.layout-three-pillars .control-panel,
+    body.layout-three-pillars .right-pillar {
+        height: auto;
+        min-height: 0;
+    }
+
+    /* Same fix as .right-column's own override just above, and for the
+       same reason (.right-pillar's own base rule elsewhere sets
+       grid-column: 3, a now-stale reference once this breakpoint's
+       .container collapses to a single explicit column) -- stacks below
+       .right-column instead of creating an implicit third column, and
+       drops the sticky/fixed-width card treatment that only makes sense
+       in the wide, side-by-side layout. */
+    body.layout-three-pillars .right-pillar {
+        grid-column: 1;
+        grid-row: auto;
+        width: 100%;
+        position: relative;
+        top: 0;
+        max-height: none;
+        overflow-y: visible;
+    }
+
+    .title {
+        font-size: 1.6rem;
+    }
+}
+
+@media (max-width: 640px) {
+    body,
+    button,
+    input,
+    select,
+    .btn,
+    .control-input,
+    input.slider-value,
+    .control-label,
+    .checkbox-label,
+    .radio-label,
+    .description-panel p,
+    .legend-item,
+    .stat-row {
+        font-size: var(--narrow-base-text, 15px);
+    }
+
+    .info-panel {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .slider {
+        background: linear-gradient(var(--border), var(--border)) center / 100% 3px no-repeat;
+    }
+
+    .slider::-webkit-slider-thumb {
+        width: var(--narrow-slider-thumb, 24px);
+        height: var(--narrow-slider-thumb, 24px);
+    }
+
+    .slider::-moz-range-thumb {
+        width: var(--narrow-slider-thumb, 24px);
+        height: var(--narrow-slider-thumb, 24px);
+    }
+
+    .radio-label,
+    .checkbox-label {
+        min-height: var(--narrow-touch-target, 40px);
+    }
+
+    .button-group {
+        grid-template-columns: 1fr;
+    }
+
+    .title {
+        font-size: 1.3rem;
+    }
+
+    .container {
+        padding: var(--sp-3);
+    }
+}
+
+/* ---- Scrollbar ---- */
+/* TASK 4ew: .right-pillar joins this shared rule set -- same custom
+   scrollbar width/track/thumb as .control-panel, the "same... gutter
+   treatment" this task's own (1) asks for. Harmless to list unconditionally
+   (not scoped to body.layout-three-pillars) since .right-pillar itself is
+   display:none whenever that class is absent, so these rules never
+   actually paint anything then. */
+.control-panel::-webkit-scrollbar,
+.right-pillar::-webkit-scrollbar {
+    width: 5px;
+}
+
+.control-panel::-webkit-scrollbar-track,
+.right-pillar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.control-panel::-webkit-scrollbar-thumb,
+.right-pillar::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+
+.control-panel::-webkit-scrollbar-thumb:hover,
+.right-pillar::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+/* ---- Utility animation ---- */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.loading {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Fade-in for page load */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.container > * {
+    animation: fadeIn 0.4s ease both;
+}
+
+.container > :nth-child(2) { animation-delay: 0.05s; }
+.container > :nth-child(3) { animation-delay: 0.1s; }
+.container > :nth-child(4) { animation-delay: 0.15s; }
