@@ -52,7 +52,7 @@ import {
     SURFACE_CG_ERASURE_PER_SLICE_CADENCE,
 } from './surface_cg_streaming.js';
 
-export const PREP_WALL_M = 2;
+export const PREP_WALL_M = 3;
 export const INJECTION_DRIFT_PERIOD = 8;
 export const INJECTION_CORNER = 'top-left';
 export const INJECTION_FRAME_OUTCOME_PROBABILITY = 0.5;

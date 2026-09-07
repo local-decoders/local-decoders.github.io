@@ -4,7 +4,7 @@
 import { SurfaceCGStreamingDecoder } from './surface_cg_streaming.js';
 
 export const SURGERY_SPACING_STEPS_PER_L = 2;
-export const SURGERY_CONDENSING_M = 2;
+export const SURGERY_CONDENSING_M = 3;
 export const SURGERY_DEFAULT_SIZE = 16;
 export const SURGERY_MAX_SIZE = 32;
 
