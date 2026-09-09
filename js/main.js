@@ -49,6 +49,11 @@ const ASYNC_MODE_ENABLED = false;
 // block for the CSS side.
 const LAYOUT_THREE_PILLARS = true;
 
+// Preview placement for the existing card; ?desc=below / ?desc=right
+// overrides this default without changing canvas or overlay geometry.
+export const DESCRIPTION_PLACEMENT = 'below';
+let requestedBoundaryStyle = null;
+
 // TASK 4hi: shared description leading leaves room below every pillar's
 // card stack, including the hierarchical surface decoder's taller legend.
 // At 1600x1100, 1.381 leaves only 3.95px spare; 1.38 leaves 4.20px.
@@ -69,6 +74,9 @@ export const NARROW_CANVAS_ASPECT = 1.5;
 export const NARROW_CODE_CAPACITY_CANVAS_ASPECT = 1.1;
 export const NARROW_HIERARCHICAL_CANVAS_ASPECT = 2.25;
 export const SURGERY_DEFAULT_SLICES = 3;
+export const SURGERY_Z_DEFAULT_SLICES = 3;
+// The UI ends rejected runs; decoder retries remain available to benchmarks.
+export const SURGERY_REJECTION_IS_TERMINAL = true;
 export const SURFACE_CG_PROTOCOL_DEFAULT_SLICES = 3;
 export const SURGERY_MIN_SIZE = 3;
 export const SURGERY_X_NARROW_CANVAS_ASPECT = 1.3;
@@ -140,6 +148,9 @@ export const HTREE_LEGEND_TRANSIT_TAIL_HEAD_RATIO = 3;
 export const STEP_HISTORY_MAX = 500;
 const stepHistory = [];
 const redoHistory = [];
+// Keep rejection terminal for this decoder instance until Initialize or Reset
+// replaces it, even if another UI action would otherwise alter its state.
+const terminalSurgeryRejections = new WeakSet();
 
 // A completed decode waits this long for logical data before reporting
 // that the check is unavailable. A later response still updates the verdict.
@@ -281,11 +292,13 @@ export const XCUBE_MAX_STEPS = 20000;
 
 export const SURFACE2_DEFAULT_P = 0.04;
 export const SURFACE_STREAMING_MAX_SIZE = 64;
-export const SURFACE_STREAMING_DEFAULT_SLICES = 4;
+export const SURFACE_STREAMING_DEFAULT_SLICES = 5;
+export const SURFACE_STREAMING_MAX_SLICES = 5;
 export const SURFACE_STREAMING_DEFAULT_P = 0.002;
 export const SURFACE_STREAMING_DEFAULT_P_MEAS = 0.002;
 export const SURFACE_STREAMING_DEFAULT_ERASURE_MOVES = 4;
 export const SURFACE_CG_STREAMING_DEFAULT_SIZE = 24;
+export const SURFACE_CG_PROTOCOL_DEFAULT_SIZE = 24;
 export const SURFACE_CG_STREAMING_DEFAULT_P = 0.0005;
 export const SURFACE_CG_STREAMING_DEFAULT_P_MEAS = 0.0005;
 export const SURFACE_CG_PROBABILITY_STEP = 0.0001;
@@ -294,12 +307,20 @@ export const SURFACE_CG_MAX_SLICES = 3;
 export const SURFACE_CG_COARSE_GRAINING_FACTOR = 2;
 export const SURFACE_CG_FIXED_TIMER_BOUND = 3;
 export const SURFACE_CG_FIXED_SPLIT_PERIOD = 16;
+export const SURFACE_CG_PREP_FIXED_TIMER_BOUND = 2;
+export const SURFACE_CG_INJECT_FIXED_TIMER_BOUND = 2;
+export const SURFACE_CG_SURGERY_Z_FIXED_TIMER_BOUND = 4;
+export const SURFACE_CG_PREP_FIXED_SPLIT_PERIOD = 10;
+export const SURFACE_CG_INJECT_FIXED_SPLIT_PERIOD = 8;
+export const SURFACE_CG_SURGERY_X_FIXED_SPLIT_PERIOD = 12;
+export const SURFACE_CG_SURGERY_Z_FIXED_SPLIT_PERIOD = 12;
+export const SURFACE_CG_PROTOCOL_DEFAULT_ERASURE_MOVES = 4;
 export const SURFACE_STREAMING_PROBABILITY_STEP = 0.001;
 export const SURFACE_DEFAULT_CLOCK_PERIOD = 6;
 export const SURFACE_DEFAULT_SPLIT_PERIOD = 16;
 export const SURFACE_STREAMING_DEFAULT_CLOCK_PERIOD = STREAMING_FIXED_CLOCK_PERIOD;
 export const SURFACE_CG_STREAMING_DEFAULT_CLOCK_PERIOD = STREAMING_FIXED_CLOCK_PERIOD;
-export const SURFACE_STREAMING_DEFAULT_SPLIT_PERIOD = 12;
+export const SURFACE_STREAMING_DEFAULT_SPLIT_PERIOD = 16;
 export const SURFACE2_MIN_CLOCK_PERIOD = 2;
 export const TORIC2_MIN_CLOCK_PERIOD = 2;
 export const SURFACE2_MAX_CLOCK_PERIOD = 60;
@@ -341,8 +362,8 @@ function surgeryDecoderConfig(sector) {
         name: `lattice surgery rough merge (phenomenological, constant-resource-density, ${sector.toUpperCase()}-type stabilizer sector)`,
         title: `lattice surgery on the constant-resource-density surface-code decoder, ${sector.toUpperCase()}-type stabilizer sector`,
         description: xSector
-            ? 'Two <span class="nobreak"><i>L</i> × <i>L</i></span> surface-code patches sit side by side, with a vertical rough seam at their condensing boundaries. In the <i>X</i>-type stabilizer sector, merging adds a column of seam checks: the first measured outcomes initialize a seam frame and produce no detector events, while later rounds use ordinary measurement differences. The seam becomes non-absorbing slice by slice after delays proportional to each slice’s update period; an absorbing seam above the final slice collects the remaining seam defects before the frame and surgery outcome are committed. Splitting measures out the seam qubits, removes the seam checks and their detector events, and restores an absorbing seam with the corresponding slice delays. Each patch retains its own hierarchy, and coarse corrections across the seam expand through the physical seam qubits. Operations are separated by at least <span class="nobreak">2<i>L</i></span> steps and wait for the previous introduction to finish. The state card reports the seam geometry, the next permitted operation, the committed outcome and its check against the hidden outcome, rejection, and the logical indicators.'
-            : 'Two <span class="nobreak"><i>L</i> × <i>L</i></span> surface-code patches sit side by side, with a vertical rough seam. The same physical rough merge is non-condensing in the <i>Z</i>-type stabilizer sector, which this decoder represents internally at a <i>y</i>-edge and displays after a quarter turn. Merging initializes the seam qubits in <span class="nobreak">|0⟩</span> and compares the first modified seam checks with their final pre-merge measurements; the merged geometry is introduced slice by slice with delays set by the slice update periods. Splitting measures out the seam qubits, includes those outcomes in the first post-split detector events, and introduces the split geometry with an additional slice delay. The measured bits are folded into the correction channels, whose final values commit a consistent seam frame. Each patch retains its own hierarchy, and coarse corrections across the seam expand through its physical qubits. Operations are separated by at least <span class="nobreak">2<i>L</i></span> steps and wait for the previous introduction to finish. The state card reports the seam geometry, the next permitted operation, the committed frame, and the merged or separate logical indicators.',
+            ? 'Two <span class="nobreak"><i>L</i> × <i>L</i></span> surface-code patches sit side by side, with a vertical rough seam at their condensing boundaries. In the <i>X</i>-type stabilizer sector, merging adds a column of seam checks: the first measured outcomes initialize a seam frame and produce no detector events, while later rounds use ordinary measurement differences. The seam becomes non-absorbing slice by slice after delays proportional to each slice’s update period; an absorbing seam above the final slice collects the remaining seam defects before the frame and surgery outcome are committed. Splitting measures out the seam qubits, removes the seam checks and their detector events, and restores an absorbing seam with the corresponding slice delays. Each patch retains its own hierarchy, and coarse corrections across the seam expand through the physical seam qubits. Operations are separated by at least <span class="nobreak"><i>L</i></span> steps and wait for the previous introduction to finish. The state card reports the seam geometry, the committed outcome, and whether the decoded outcome agrees with the hidden outcome; a rejected merge is reported as indeterminate and ends the run.'
+            : 'Two <span class="nobreak"><i>L</i> × <i>L</i></span> surface-code patches sit side by side, with a vertical rough seam. The same physical rough merge is non-condensing in the <i>Z</i>-type stabilizer sector, which this decoder represents internally at a <i>y</i>-edge and displays after a quarter turn. Merging initializes the seam qubits in <span class="nobreak">|0⟩</span> and compares the first modified seam checks with their final pre-merge measurements; the merged geometry is introduced slice by slice with delays set by the slice update periods. Splitting measures out the seam qubits, includes those outcomes in the first post-split detector events, and introduces the split geometry with an additional slice delay. The measured bits are folded into the correction channels, whose final values commit a consistent seam frame. Each patch retains its own hierarchy, and coarse corrections across the seam expand through its physical qubits. Operations are separated by at least <span class="nobreak"><i>L</i></span> steps and wait for the previous introduction to finish. The state card reports the seam geometry and the committed frame.',
         module: '../modules/surface_cg_surgery_htree.js',
         className: xSector ? 'SurfaceCGSurgeryXHTreeDecoder' : 'SurfaceCGSurgeryZHTreeDecoder',
         narrowAspect: xSector ? SURGERY_X_NARROW_CANVAS_ASPECT : SURGERY_Z_NARROW_CANVAS_ASPECT,
@@ -367,9 +388,10 @@ function surgeryDecoderConfig(sector) {
         noManualPlacement: true,
         pStep: SURFACE_CG_PROBABILITY_STEP,
         opts: { n: SURFACE_CG_COARSE_GRAINING_FACTOR,
-            t0: SURFACE_CG_FIXED_TIMER_BOUND, qs: SURFACE_CG_FIXED_SPLIT_PERIOD },
+            t0: xSector ? SURFACE_CG_FIXED_TIMER_BOUND : SURFACE_CG_SURGERY_Z_FIXED_TIMER_BOUND,
+            qs: xSector ? SURFACE_CG_SURGERY_X_FIXED_SPLIT_PERIOD : SURFACE_CG_SURGERY_Z_FIXED_SPLIT_PERIOD },
         extraParams: [
-            { key: 'K', label: 'Slices', default: SURGERY_DEFAULT_SLICES, min: 1, max: SURFACE_CG_MAX_SLICES, step: 1 },
+            { key: 'K', label: 'Slices', default: xSector ? SURGERY_DEFAULT_SLICES : SURGERY_Z_DEFAULT_SLICES, min: 1, max: SURFACE_CG_MAX_SLICES, step: 1 },
             { key: 'pMeas', label: 'measurement error probability', default: SURFACE_CG_STREAMING_DEFAULT_P_MEAS, min: 0, max: 1, step: SURFACE_CG_PROBABILITY_STEP, afterErrorProb: true },
             { key: 'erasureMoves', label: 'extra message erasure moves', default: SURFACE_CG_STREAMING_DEFAULT_ERASURE_MOVES, min: 0, max: STREAMING_MAX_ERASURE_MOVES, step: 1 }
         ]
@@ -389,7 +411,7 @@ function protocolDecoderConfig(kind) {
         module: '../modules/surface_cg_prep_inject_htree.js',
         className: injection ? 'SurfaceCGInjectHTreeDecoder' : 'SurfaceCGPrepHTreeDecoder',
         narrowAspect: NARROW_HIERARCHICAL_CANVAS_ASPECT,
-        defaultSize: SURFACE_CG_STREAMING_DEFAULT_SIZE,
+        defaultSize: SURFACE_CG_PROTOCOL_DEFAULT_SIZE,
         maxSize: SURFACE_STREAMING_MAX_SIZE,
         defaultP: SURFACE_CG_STREAMING_DEFAULT_P,
         noiseStop: true,
@@ -408,11 +430,12 @@ function protocolDecoderConfig(kind) {
         noManualPlacement: true,
         pStep: SURFACE_CG_PROBABILITY_STEP,
         opts: { n: SURFACE_CG_COARSE_GRAINING_FACTOR,
-            t0: SURFACE_CG_FIXED_TIMER_BOUND, qs: SURFACE_CG_FIXED_SPLIT_PERIOD },
+            t0: injection ? SURFACE_CG_INJECT_FIXED_TIMER_BOUND : SURFACE_CG_PREP_FIXED_TIMER_BOUND,
+            qs: injection ? SURFACE_CG_INJECT_FIXED_SPLIT_PERIOD : SURFACE_CG_PREP_FIXED_SPLIT_PERIOD },
         extraParams: [
             { key: 'K', label: 'Slices', default: SURFACE_CG_PROTOCOL_DEFAULT_SLICES, min: 1, max: SURFACE_CG_MAX_SLICES, step: 1 },
             { key: 'pMeas', label: 'measurement error probability', default: SURFACE_CG_STREAMING_DEFAULT_P_MEAS, min: 0, max: 1, step: SURFACE_CG_PROBABILITY_STEP, afterErrorProb: true },
-            { key: 'erasureMoves', label: 'extra message erasure moves', default: SURFACE_CG_STREAMING_DEFAULT_ERASURE_MOVES, min: 0, max: STREAMING_MAX_ERASURE_MOVES, step: 1 }
+            { key: 'erasureMoves', label: 'extra message erasure moves', default: SURFACE_CG_PROTOCOL_DEFAULT_ERASURE_MOVES, min: 0, max: STREAMING_MAX_ERASURE_MOVES, step: 1 }
         ]
     };
 }
@@ -486,7 +509,7 @@ const decoderConfigs = {
         // Fixed timers and splitting have no inputs, so URL t0/n/qs cannot override them.
         opts: { t0: REPETITION_STREAMING_TIMER_BASE, n: REPETITION_STREAMING_TIMER_GROWTH, qs: SURFACE_STREAMING_DEFAULT_SPLIT_PERIOD },
         extraParams: [
-            { key: 'K', label: 'Slices', default: SURFACE_STREAMING_DEFAULT_SLICES, min: 1, max: 4, step: 1 },
+            { key: 'K', label: 'Slices', default: SURFACE_STREAMING_DEFAULT_SLICES, min: 1, max: SURFACE_STREAMING_MAX_SLICES, step: 1 },
             { key: 'pMeas', label: 'measurement error probability', default: SURFACE_STREAMING_DEFAULT_P_MEAS, min: 0, max: 1, step: SURFACE_STREAMING_PROBABILITY_STEP, afterErrorProb: true },
             { key: 'erasureMoves', label: 'extra message erasure moves', default: SURFACE_STREAMING_DEFAULT_ERASURE_MOVES, min: 0, max: STREAMING_MAX_ERASURE_MOVES, step: 1 }
         ]
@@ -684,7 +707,8 @@ const decoderConfigs = {
 // this runs exactly once rather than on every loadDecoder() the way
 // applyDescriptionPlacement() does) out of their current homes inside
 // .canvas-area's two overlay stacks and into the new #right-pillar
-// column. Same elements (never cloned/recreated), so every existing
+// column (or the centre column's description band for ?desc=below).
+// Same elements (never cloned/recreated), so every existing
 // id-based lookup elsewhere in this file (getElementById('step-count'),
 // ('legend-content'), ('decoder-description'), ...) keeps working
 // completely unchanged regardless of which ancestor now contains them.
@@ -703,9 +727,26 @@ function setupThreePillarLayout() {
     const infoPanel = document.querySelector('.info-panel');
     const legendEl = document.querySelector('.legend');
     const descriptionPanel = document.querySelector('.description-panel');
+    const params = new URLSearchParams(window.location.search);
+    const requestedPlacement = params.get('desc');
+    requestedBoundaryStyle = params.get('boundary');
+    const placement = requestedPlacement === 'below' || requestedPlacement === 'right'
+        ? requestedPlacement : DESCRIPTION_PLACEMENT;
+    const visualization = document.querySelector('.visualization-container');
+    const placeBelow = placement === 'below' && !!visualization;
+    document.body.classList.toggle('description-below', placeBelow);
     if (infoPanel) pillar.appendChild(infoPanel);
     if (legendEl) pillar.appendChild(legendEl);
-    if (descriptionPanel) pillar.appendChild(descriptionPanel);
+    if (descriptionPanel) {
+        if (placeBelow) {
+            const band = document.querySelector('.description-band') || document.createElement('section');
+            band.className = 'description-band';
+            visualization.insertAdjacentElement('afterend', band);
+            band.appendChild(descriptionPanel);
+        } else {
+            pillar.appendChild(descriptionPanel);
+        }
+    }
     // TASK 4fe: match the description card's full pillar width. An auto
     // width lets flex stretch override the state's fit-content width;
     // legend syncing below leaves these styles alone in this layout.
@@ -714,8 +755,6 @@ function setupThreePillarLayout() {
         card.style.width = 'auto';
         card.style.alignSelf = 'stretch';
     }
-    // Keep labels left and the existing fixed-width value column right.
-    if (infoPanel) infoPanel.style.justifyContent = 'space-between';
 }
 
 // Move the original controls/cards, retaining their handlers and IDs. Comment
@@ -741,7 +780,9 @@ function setupNarrowLayout() {
     const moves = [
         [document.querySelector('.info-panel'), container],
         [document.querySelector('.legend'), container],
-        [document.querySelector('.description-panel'), container],
+        // The preview band remains directly below the animation at every
+        // width; the right-placement card keeps its existing narrow order.
+        [document.querySelector('.description-band') ? null : document.querySelector('.description-panel'), container],
         [document.getElementById('transport-controls'), visualization],
     ].filter(([element]) => element).map(([element, destination]) => {
         const bookmark = document.createComment('desktop position');
@@ -983,7 +1024,13 @@ function wireCommitOnlyNumericInput(inputEl, sliderEl, onCommit, initializeOnEnt
 // Blur alone stores only; Escape restores the text from focus.
 function wireEnterBlurEscape(inputEl) {
     let valueAtFocus = inputEl.value;
-    inputEl.addEventListener('focus', () => { valueAtFocus = inputEl.value; });
+    let probabilityAtFocus;
+    const isProbability = inputEl.id === 'error-prob' || inputEl.dataset.extraKey === 'pMeas';
+    inputEl.addEventListener('focus', () => {
+        valueAtFocus = inputEl.value;
+        probabilityAtFocus = probabilityInputValues.get(inputEl);
+    });
+    if (isProbability) inputEl.addEventListener('input', () => probabilityInputValues.delete(inputEl));
     inputEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -992,6 +1039,10 @@ function wireEnterBlurEscape(inputEl) {
         } else if (e.key === 'Escape') {
             e.preventDefault();
             inputEl.value = valueAtFocus;
+            if (isProbability) {
+                if (probabilityAtFocus) probabilityInputValues.set(inputEl, probabilityAtFocus);
+                syncProbabilityInputs();
+            }
         }
     });
 }
@@ -1016,6 +1067,50 @@ function formatPValue(value, step) {
     return Number.isNaN(v) ? String(value) : v.toFixed(decimals);
 }
 
+export const PROBABILITY_DISPLAY_MAX_DECIMALS = 6;
+
+// Count the decimal places of the numeric value, including exponent notation,
+// without letting previously padded text keep the pair unnecessarily wide.
+function probabilityDecimals(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 0;
+    const [coefficient, exponent = '0'] = String(number).split('e');
+    return Math.max(0, (coefficient.split('.')[1]?.length ?? 0) - Number(exponent));
+}
+
+export function formatProbabilityValues(p, pMeas, pStep, pMeasStep) {
+    const decimals = Math.min(PROBABILITY_DISPLAY_MAX_DECIMALS,
+        Math.max(...[pStep, pMeasStep, p, pMeas].map(probabilityDecimals)));
+    return { p: Number(p).toFixed(decimals), pMeas: Number(pMeas).toFixed(decimals) };
+}
+
+// A capped display can round its text; construction must still receive the
+// original number. An actual edit invalidates this record, while repeated
+// commits and control rebuilds retain it. Code-capacity inputs never use it.
+const probabilityInputValues = new WeakMap();
+
+function probabilityInputValue(input) {
+    const stored = probabilityInputValues.get(input);
+    return stored && stored.text === input.value ? stored.value : parseFloat(input.value);
+}
+
+function syncProbabilityInputs(config = getCurrentDecoderConfig(), overrides = {}) {
+    const measurement = config?.extraParams?.find(param => param.key === 'pMeas');
+    const physicalInput = document.getElementById('error-prob');
+    const measurementInput = document.getElementById('extra-param-pMeas');
+    if (!measurement || !physicalInput || !measurementInput) return null;
+    const rawP = overrides.p ?? probabilityInputValue(physicalInput);
+    const p = Math.min(parseFloat(physicalInput.max), Math.max(parseFloat(physicalInput.min),
+        Number.isFinite(rawP) ? rawP : 0.1));
+    const pMeas = clampExtraParamValue(measurement, overrides.pMeas ?? probabilityInputValue(measurementInput));
+    const text = formatProbabilityValues(p, pMeas, config.pStep ?? 0.01, measurement.step);
+    for (const [input, key, value] of [[physicalInput, 'p', p], [measurementInput, 'pMeas', pMeas]]) {
+        setControlValue(input, text[key]);
+        probabilityInputValues.set(input, { value, text: text[key] });
+    }
+    return { p, pMeas };
+}
+
 // Validation is shared by typed commits, preserved reloads, and URL loads.
 // It changes only the controls; construction happens at an explicit boundary.
 function validateSizeInput(config) {
@@ -1030,6 +1125,9 @@ function validateSizeInput(config) {
 }
 
 function commitErrorProb(input) {
+    const probabilities = syncProbabilityInputs();
+    if (probabilities) return probabilities.p;
+    probabilityInputValues.delete(input);
     const parsed = parseFloat(input.value);
     const value = Math.min(parseFloat(input.max), Math.max(parseFloat(input.min),
         Number.isFinite(parsed) ? parsed : 0.1));
@@ -1040,6 +1138,7 @@ function commitErrorProb(input) {
 
 function setControlValue(input, value) {
     if (!input) return;
+    probabilityInputValues.delete(input);
     const text = String(value);
     if (input.value !== text) input.value = text;
     if (input.dataset.lastCommitted !== undefined && input.dataset.lastCommitted !== text) {
@@ -1050,7 +1149,9 @@ function setControlValue(input, value) {
 // Reset writes defaults into existing controls, preserving UI preferences.
 function restoreDecoderDefaults(config) {
     setControlValue(document.getElementById('size-input'), config.defaultSize);
-    setControlValue(document.getElementById('error-prob'), formatPValue(config.defaultP, config.pStep));
+    const hasMeasurement = config.extraParams?.some(param => param.key === 'pMeas');
+    setControlValue(document.getElementById('error-prob'), hasMeasurement
+        ? config.defaultP : formatPValue(config.defaultP, config.pStep));
     const clock = document.getElementById('clock-period');
     const q = config.fixedClockPeriod ?? config.defaultClockPeriod ?? clock.defaultValue;
     setControlValue(clock, q);
@@ -1069,6 +1170,7 @@ function restoreDecoderDefaults(config) {
         setControlValue(split, config.defaultSplitPeriod ?? split.defaultValue);
         updateStatText(document.getElementById('split-period-value'), split.value);
     }
+    syncProbabilityInputs(config);
 }
 
 // Reuse the loaded class, honoring fixed config values before control inputs.
@@ -1091,6 +1193,7 @@ function decoderFromControls(config, seed = null, module = currentLoadedModule) 
             setControlValue(document.getElementById(`extra-param-${param.key}-value`), opts[param.key]);
         }
     }
+    syncProbabilityInputs(config, { p, pMeas: opts.pMeas });
     opts.pPhys = p;
     opts.descriptionPlacement = config.descriptionPlacement;
     opts.seed = seed ?? freshRandomSeed();
@@ -1146,12 +1249,10 @@ async function applyUrlParamsAndLoad() {
     // rather than whatever a previously loaded decoder left behind.
     if (sizeInput) sizeInput.value = params.get('L') ?? config.defaultSize;
     if (errorProbInput && config.defaultP !== undefined) {
-        // TASK 4by addition: written already formatted to this decoder's
-        // own step precision (config.pStep, not the DOM's current .step --
-        // loadDecoder() below hasn't applied it yet at this point) rather
-        // than raw-then-corrected in a later pass, so the field never
-        // displays an intermediate unformatted value at all.
-        errorProbInput.value = formatPValue(params.get('p') ?? config.defaultP, config.pStep ?? '0.01');
+        const value = params.get('p') ?? config.defaultP;
+        // Paired probabilities are formatted together once both controls exist.
+        setControlValue(errorProbInput, config.extraParams?.some(param => param.key === 'pMeas')
+            ? value : formatPValue(value, config.pStep ?? '0.01'));
     }
     if (clockPeriodSlider) {
         const clockMin = config.minClockPeriod ?? 1;
@@ -1207,13 +1308,14 @@ async function applyUrlParamsAndLoad() {
             const isNumeric = paramConfig && paramConfig.type !== 'select' && paramConfig.type !== 'textarea';
             if (isNumeric) {
                 const clamped = clampExtraParamValue(paramConfig, params.get(urlKey));
-                input.value = clamped;
+                setControlValue(input, clamped);
                 input.dataset.lastCommitted = clamped;
             } else {
                 input.value = params.get(urlKey);
             }
         }
     });
+    syncProbabilityInputs(config);
     // The generic loop above just copies each URL param straight into its
     // control's .value, bypassing onExtraParamChange()'s own glue -- so a
     // URL that sets presetChoice alone (without also setting codeSpec)
@@ -1469,12 +1571,8 @@ function setupEventListeners() {
         // 0.10 -- the browser's own stepping produces the shortest string,
         // "0.1", not "0.10"). Firing on both events for a typed-then-blurred
         // edit just reformats the same already-clean value twice; harmless.
-        // Formats to the field's own step precision (2 decimals at the
-        // default step of 0.01, 3 at 0.001) via toFixed(), which pads
-        // trailing zeros (0.4 -> "0.40") and, as a side effect of rounding,
-        // strips binary floating-point residue from typed or computed
-        // values (0.1+0.01+0.01+0.01 landing on 0.12999999999999998 rather
-        // than 0.13). The native spinner and arrow-key stepping are
+        // Paired probabilities share their precision; code-capacity p
+        // keeps its existing step-based formatting. The native spinner and arrow-key stepping are
         // already residue-free per the HTML stepping algorithm and already
         // clamp to min/max on their own; this handler exists mainly to
         // catch typed entries and to (re)pad every commit to fixed width.
@@ -1774,7 +1872,8 @@ function renderExtraParams(config, preserveValues) {
     const prevValues = {};
     if (preserveValues) {
         containers.forEach((paramContainer) => paramContainer.querySelectorAll('input[data-extra-key], select[data-extra-key], textarea[data-extra-key]').forEach((inp) => {
-            prevValues[inp.dataset.extraKey] = (inp.dataset.extraType === 'bool') ? inp.checked : inp.value;
+            prevValues[inp.dataset.extraKey] = inp.dataset.extraType === 'bool' ? inp.checked
+                : inp.dataset.extraKey === 'pMeas' ? probabilityInputValue(inp) : inp.value;
         }));
     }
 
@@ -2002,7 +2101,8 @@ function renderExtraParams(config, preserveValues) {
             // already-clamped value a second time; harmless and already this codebase's own
             // pattern (see wireCommitOnlyNumericInput's identical note).
             const commit = () => {
-                input.value = clampExtraParamValue(p, input.value);
+                if (p.key === 'pMeas') syncProbabilityInputs(config);
+                else input.value = clampExtraParamValue(p, input.value);
                 input.dataset.lastCommitted = input.value;
                 onExtraParamChange(p, input);
             };
@@ -2014,6 +2114,7 @@ function renderExtraParams(config, preserveValues) {
         targetContainer.appendChild(group);
     });
 
+    syncProbabilityInputs(config);
     updateSectionDividers();
 }
 
@@ -2037,7 +2138,7 @@ function getExtraParamsOpts(config) {
             // handler), so this is the actual guarantee that an
             // out-of-range value can never reach a decoder regardless of
             // how it got into the DOM.
-            opts[p.key] = clampExtraParamValue(p, input.value);
+            opts[p.key] = clampExtraParamValue(p, p.key === 'pMeas' ? probabilityInputValue(input) : input.value);
         }
     });
     return opts;
@@ -2089,6 +2190,7 @@ function applyConstraint(key, value, sliderEl, valueEl) {
             }
         }
     }
+    syncProbabilityInputs(config);
     return updates[key];
 }
 
@@ -2312,6 +2414,8 @@ async function loadDecoder(decoderType, preserveSize = false, { seed = null, ini
         const cacheBuster = Date.now();
         const module = await import(`${activeModule}?v=${cacheBuster}`);
         if (loadToken !== decoderLoadToken) return;
+        // Apply to this module instance, including cache-busted memory imports.
+        module.setHTreeCondensingBoundaryStyle?.(requestedBoundaryStyle);
         const decoder = decoderFromControls(config, seed, module);
         // Build asynchronous viewers locally. A newer selection cancels
         // their work before either shared state or viewer DOM is committed.
@@ -2446,7 +2550,8 @@ function updateLegend(decoderType, moduleColors) {
         const colorBox = document.createElement('div');
         // Apply shape class if specified
         const shape = item.shape || 'square';
-        colorBox.className = `legend-color ${shape === 'comet' ? 'hline comet' : shape}`;
+        colorBox.className = `legend-color ${shape === 'comet' ? 'hline comet'
+            : shape === 'condensing-boundary' ? 'hline condensing-boundary' : shape}`;
         colorBox.style.backgroundColor = item.color;
         // TASK 4bf: an explicit edge colour (repetition2's message square
         // and defect orb both have one distinct from the generic faint
@@ -2457,6 +2562,41 @@ function updateLegend(decoderType, moduleColors) {
         if (item.dash) colorBox.style.background = `repeating-linear-gradient(to right, ${item.color} 0 ${item.dash[0]}px, transparent ${item.dash[0]}px ${item.dash[0] + item.dash[1]}px)`;
 
         if (shape === 'diamond') colorBox.style.clipPath = 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)';
+
+        if (shape === 'htree-site' || shape === 'condensing-boundary') {
+            // Reuse the canvas glyphs without changing the swatch's existing
+            // box or label spacing. The boundary uses the session's style.
+            const width = shape === 'htree-site' ? 11 : 14;
+            const height = 11;
+            const pixelRatio = globalThis.devicePixelRatio || 1;
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(width * pixelRatio);
+            canvas.height = Math.round(height * pixelRatio);
+            canvas.style.width = `${width}px`;
+            canvas.style.height = `${height}px`;
+            canvas.style.position = 'absolute';
+            canvas.style.left = '0';
+            canvas.style.top = '50%';
+            canvas.style.transform = 'translateY(-50%)';
+            canvas.setAttribute('aria-hidden', 'true');
+            colorBox.style.position = 'relative';
+            colorBox.style.backgroundColor = 'transparent';
+            colorBox.style.border = 'none';
+            const context = canvas.getContext('2d');
+            context.scale(pixelRatio, pixelRatio);
+            if (shape === 'htree-site') {
+                // The shared glyph also honours HTREE_INNER_SQUARE for swatches.
+                moduleColors.drawSiteGlyph(context, width / 2, height / 2, width - 1,
+                    item.glyphColors);
+            } else {
+                const scale = moduleColors.HTREE_BOUNDARY_LEGEND_SCALE;
+                context.scale(scale, scale);
+                moduleColors.drawCondensingBoundary(context, 0, height / (2 * scale),
+                    width / scale, height / (2 * scale),
+                    width, 0, 1, undefined, item.bothSides === true);
+            }
+            colorBox.appendChild(canvas);
+        }
 
         if (shape === 'comet') {
             // Keep the original line box and label spacing. The SVG's round
@@ -2581,9 +2721,8 @@ function syncLegendWidthToInfoPanel() {
 // existing match-the-info-panel's-rendered-width logic, .legend along
 // with it) and the moved .description-panel itself to the description
 // card's own former max-width (180px) so all three share the same left
-// and right edges, per the task's own (2) -- the value column stays
-// 60px, so 1fr on the other grid column lets the label column absorb
-// the rest without this code computing that arithmetic itself.
+// and right edges. Each state row shares that width between its own
+// label and value.
 //
 // Called on every loadDecoder() (idempotent either way, and cheap when
 // there's nothing to change -- the parentElement checks below skip the
@@ -2639,7 +2778,6 @@ function applyDescriptionPlacement(config) {
         // moves the state/legend cards horizontally, not the (unchanged)
         // description card that still defines the stack's own left edge.
         infoPanel.style.width = '';
-        infoPanel.style.gridTemplateColumns = '';
         descriptionPanel.style.width = '180px';
         overlayStack.style.alignItems = '';
         // TASK 4et: see DESCRIPTION_STACK_EXTRA_GAP's own comment above.
@@ -2649,7 +2787,6 @@ function applyDescriptionPlacement(config) {
             descriptionStack.appendChild(descriptionPanel);
         }
         infoPanel.style.width = '';
-        infoPanel.style.gridTemplateColumns = '';
         descriptionPanel.style.width = '';
         overlayStack.style.alignItems = '';
         // TASK 4et: cleared for the default placement -- .description-stack
@@ -2803,38 +2940,26 @@ function getLegendItems(decoderType, moduleColors) {
         case 'surface_cg_prep':
         case 'surface_cg_inject':
         case 'surface_cg_surgery_z': {
-            // The H-tree shows transient green moves on the left and red
+            // The H-tree shows turquoise comets on the left and red
             // residual strings on the right. Level rows use the live K/n.
             const c = moduleColors || {};
             const swatchSize = 14;
             const wBlue = Math.max(2, Math.round(swatchSize / 9));
             const errLineWidth = Math.max(1, 1.05 * wBlue);
             const protocolSector = decoderType === 'surface_cg_prep' || decoderType === 'surface_cg_inject';
+            const htree = isHierarchicalPresentation(decoderType);
             const items = [
                 { color: c.COLOR_ORB_RIM, edgeColor: '#000000', label: protocolSector ? 'X-check defect' : 'defect', shape: 'orb' },
                 ...(isHierarchicalPresentation(decoderType) ? [
-                    { color: c.HTREE_MOVE_HIGHLIGHT_COLOR_POSITIVE, label: 'defect in transit', shape: 'comet', lineWidth: errLineWidth }
+                    { color: c.HTREE_TRANSIT_COLOR, label: 'defect in transit', shape: 'comet', lineWidth: errLineWidth }
                 ] : []),
                 { color: c.COLOR_ERROR, label: 'error', shape: 'hline', lineWidth: errLineWidth },
                 { color: c.COLOR_MSG00_FILL, edgeColor: c.COLOR_MSG00_EDGE, label: 'blue message', shape: 'tile' },
                 { color: c.COLOR_MSG01_FILL, edgeColor: c.COLOR_MSG01_EDGE, label: 'red message', shape: 'tile' },
                 { color: c.COLOR_MSG10_FILL, edgeColor: c.COLOR_MSG10_EDGE, label: 'green message', shape: 'tile' },
-                { color: c.ROUGH_BOUNDARY_COLOR, label: 'condensing boundary', shape: 'hline', lineWidth: c.ROUGH_BOUNDARY_WIDTH }
+                { color: c.ROUGH_BOUNDARY_COLOR, label: 'condensing boundary',
+                    shape: htree ? 'condensing-boundary' : 'hline', lineWidth: c.ROUGH_BOUNDARY_WIDTH }
             ];
-            if (decoderType === 'surface_cg_surgery_x' || decoderType === 'surface_cg_surgery_z') {
-                const split = currentDecoder?.seamGeometry?.(0) === 'split';
-                const xSector = decoderType === 'surface_cg_surgery_x';
-                const drawJoinedSeam = xSector ? c.SURGERY_X_DRAW_JOINED_SEAM : c.SURGERY_Z_DRAW_JOINED_SEAM;
-                const condensing = xSector && split;
-                if (split || drawJoinedSeam) {
-                    items.push({ color: condensing ? c.ROUGH_BOUNDARY_COLOR
-                            : split ? '#000000' : c.SURGERY_OPEN_SEAM_COLOR,
-                        label: split ? condensing ? 'seam (condensing)' : 'seam (non-condensing)' : 'seam (joined)',
-                        shape: 'hline', lineWidth: condensing ? c.ROUGH_BOUNDARY_WIDTH
-                            : split ? c.HTREE_SMOOTH_BOUNDARY_WIDTH : c.SURGERY_OPEN_SEAM_WIDTH,
-                        dash: split ? null : [c.SURGERY_OPEN_SEAM_DASH, c.SURGERY_OPEN_SEAM_GAP] });
-                }
-            }
             if (decoderType === 'surface_cg_prep' || decoderType === 'surface_cg_inject') {
                 items.push({ color: c.PROTOCOL_ABSORBING_FILL, edgeColor: c.PROTOCOL_ABSORBING_EDGE,
                     label: 'absorbing site' });
@@ -2848,6 +2973,12 @@ function getLegendItems(decoderType, moduleColors) {
             const n = currentDecoder?.n ?? 2;
             // H-tree also gives level 0 its own coloured streets and glyphs.
             for (let k = isHierarchicalPresentation(decoderType) ? 0 : 1; k < K; k++) {
+                if (htree && c.glyphColors) {
+                    const colors = c.glyphColors(levelColors[k % levelColors.length]);
+                    items.push({ color: colors.fill, edgeColor: colors.edge, glyphColors: colors,
+                        label: `slice-${k} site`, shape: 'htree-site' });
+                    continue;
+                }
                 items.push({
                     color: 'transparent',
                     edgeColor: levelColors[k % levelColors.length],
@@ -2991,7 +3122,7 @@ async function initializeErrors({ seed = null, loadToken = decoderLoadToken } = 
     noiseStoppedAtStep = null;
     lastAnimationTime = 0;
     const mode = document.querySelector('input[name="init-mode"]:checked')?.value || 'random';
-    const p = parseFloat(document.getElementById('error-prob').value);
+    const p = probabilityInputValue(document.getElementById('error-prob'));
     const rng = mulberry32(runSeed);
     if (mode === 'manual' && currentDecoderType === 'repetition_streaming') {
         currentDecoder.initializeClear();
@@ -3122,6 +3253,7 @@ function restoreStepState(snapshot, fromPlayback = false, replay = false) {
 }
 
 function stepBackOnce(fromPlayback = false) {
+    if (stopForSurgeryRejection()) return false;
     if (!currentDecoder || stepHistory.length === 0) return false;
     finishInitialErrorsPointerGesture();
     redoHistory.push(captureStepState());
@@ -3130,6 +3262,7 @@ function stepBackOnce(fromPlayback = false) {
 }
 
 function stepBackSimulation() {
+    if (stopForSurgeryRejection()) return;
     if (!currentDecoder || stepHistory.length === 0) return;
     if (isPlaying) stopPlayback();
     return stepBackOnce();
@@ -3172,6 +3305,7 @@ function stepOnce() {
         return false;
     }
 
+    if (stopForSurgeryRejection()) return false;
     finishInitialErrorsPointerGesture();
     // An already displayed verdict is today's STEP no-op. The first
     // request on a quiescent step-zero state still reveals its verdict,
@@ -3224,6 +3358,7 @@ function stepOnce() {
     } else {
         currentDecoder.step();
     }
+    if (stopForSurgeryRejection()) return false;
     if (isRunOver()) {
         if (isPlaying) stopPlayback();
         updateStats();
@@ -3236,11 +3371,12 @@ function stepOnce() {
 // Both forward controls replay saved states before computing a fresh tick.
 // Timer ticks leave rendering and the scheduler clock to animate().
 function stepForwardOnce(fromPlayback = false) {
-    if (!currentDecoder) return false;
+    if (!currentDecoder || stopForSurgeryRejection()) return false;
     finishInitialErrorsPointerGesture();
     if (redoHistory.length > 0) {
         pushStepHistory(captureStepState());
         restoreStepState(redoHistory.pop(), fromPlayback, true);
+        if (stopForSurgeryRejection()) return false;
         if (isPlaying && isRunOver()) stopPlayback();
         return !isRunOver();
     }
@@ -3250,6 +3386,7 @@ function stepForwardOnce(fromPlayback = false) {
 }
 
 function stepSimulation() {
+    if (stopForSurgeryRejection()) return;
     if (!currentDecoder || (redoHistory.length === 0 && isRunOver())) return;
     if (isPlaying && playDirection === 'backward') stopPlayback();
     stepForwardOnce();
@@ -3257,7 +3394,7 @@ function stepSimulation() {
 }
 
 function shouldRestartStoppedNoiseRun() {
-    return supportsNoiseStop() && !currentDecoder.isNoiseEnabled()
+    return !isSurgeryRejectionTerminal() && supportsNoiseStop() && !currentDecoder.isNoiseEnabled()
         && ((advanceRequested && isDecoderQuiescent(currentDecoder)) || hasReachedStepLimit());
 }
 
@@ -3289,17 +3426,19 @@ function togglePlayBack() {
 }
 
 function togglePlayback() {
+    if (stopForSurgeryRejection()) return;
     if (isPlaying) return stopPlayback();
     return togglePlay();
 }
 
 function playForward() {
+    if (stopForSurgeryRejection()) return;
     if (isPlaying && playDirection === 'forward') return;
     return togglePlay();
 }
 
 function togglePlay(direction = 'forward') {
-    if (!currentDecoder) return;
+    if (!currentDecoder || stopForSurgeryRejection()) return;
     // Guard before stopping the other direction or writing any DOM state.
     if (direction === 'backward' && stepHistory.length === 0) return;
     if (isPlaying && playDirection === direction) {
@@ -3389,10 +3528,30 @@ function isManualStreamingRun() {
     return currentDecoderType === 'repetition_streaming' && !!currentDecoder?.manualMode;
 }
 
+function isSurgeryRejectionTerminal() {
+    return SURGERY_REJECTION_IS_TERMINAL && !!getCurrentDecoderConfig()?.surgery
+        && !!currentDecoder && (!!currentDecoder.rejected || terminalSurgeryRejections.has(currentDecoder));
+}
+
+function stopForSurgeryRejection() {
+    if (!isSurgeryRejectionTerminal()) return false;
+    if (!terminalSurgeryRejections.has(currentDecoder)) {
+        terminalSurgeryRejections.add(currentDecoder);
+        if (currentDecoder.isNoiseEnabled?.()) {
+            currentDecoder.setNoiseEnabled(false);
+            noiseStoppedAtStep = currentDecoder.stepCount || 0;
+        }
+        stopPlayback();
+        updateStats();
+        render();
+    }
+    return true;
+}
+
 // Stop physical decoding at quiescence even while the logical verdict is
 // pending. watchLogicalData resolves that verdict without another step.
 function isRunOver() {
-    return !!currentDecoder && ((advanceRequested && isDecoderQuiescent(currentDecoder))
+    return !!currentDecoder && (isSurgeryRejectionTerminal() || (advanceRequested && isDecoderQuiescent(currentDecoder))
         || hasReachedStepLimit());
 }
 
@@ -3450,33 +3609,31 @@ function updateSurgeryControls() {
         const button = document.getElementById(`${kind}-btn`);
         if (!button) continue;
         button.style.display = available ? '' : 'none';
-        button.disabled = !available || !currentDecoder[kind === 'merge' ? 'canMerge' : 'canSplit']?.();
+        button.disabled = !available || isSurgeryRejectionTerminal()
+            || !currentDecoder[kind === 'merge' ? 'canMerge' : 'canSplit']?.();
     }
     const xSector = available && currentDecoder.sector === 'x';
     const row = (key, visible, value) => {
         const element = document.getElementById(`${key}-row`);
-        if (element) element.style.display = visible ? 'contents' : 'none';
+        if (element) element.style.display = visible ? 'flex' : 'none';
         if (visible) updateStatText(document.getElementById(`${key}-value`), value);
     };
     const state = currentDecoder?.seamState || 'split';
     const introducing = state === 'merging' || state === 'splitting';
     row('seam-state', available, introducing
         ? `${state} (${currentDecoder.switchedSliceCount} of ${currentDecoder.K} slices switched)` : state);
-    row('next-surgery', available, `step ${currentDecoder?.nextSurgeryStep ?? 0}`);
     row('seam-frame', available && !xSector, currentDecoder?.seamFrameCommitted
         ? 'seam frame committed' : 'not committed');
     row('surgery-outcome', xSector, currentDecoder?.surgeryOutcome ?? 'pending');
-    row('outcome-check', xSector, currentDecoder?.outcomeCheck == null
-        ? 'pending' : currentDecoder.outcomeCheck ? 'agrees' : 'disagrees');
-    row('surgery-rejected', xSector, currentDecoder?.rejected ? 'rejected' : 'accepted');
-    const check = available ? currentDecoder.checkLogicalError?.() : null;
-    const patchValues = check?.patches ?? check?.patchLogical ?? currentDecoder?.patchLogical;
-    row('patch-logical', available, state.startsWith('merg')
-        ? `merged: ${Number(!!check?.logical)}`
-        : `A: ${Number(!!(patchValues?.[0]?.logical ?? patchValues?.[0]))}, B: ${Number(!!(patchValues?.[1]?.logical ?? patchValues?.[1]))}`);
-    // Only the surgery legend changes with physical seam geometry.
+    const decodedOutcome = currentDecoder?.rejected || isSurgeryRejectionTerminal() ? 'indeterminate'
+        : currentDecoder?.outcomeCheck == null ? 'pending' : currentDecoder.outcomeCheck ? 'agrees' : 'disagrees';
+    row('outcome-check', xSector, decodedOutcome);
+    const outcomeValue = document.getElementById('outcome-check-value');
+    outcomeValue?.classList.toggle('state-ok', xSector && decodedOutcome === 'agrees');
+    outcomeValue?.classList.toggle('state-bad', xSector && (decodedOutcome === 'disagrees' || decodedOutcome === 'indeterminate'));
+    // Surgery legend channels change only with the decoder and slice count.
     if (available) {
-        const signature = `${currentDecoderType}:${currentDecoder.K}:${currentDecoder.seamGeometry?.(0)}`;
+        const signature = `${currentDecoderType}:${currentDecoder.K}`;
         if (surgeryLegendSignature !== signature) {
             updateLegend(currentDecoderType, currentLoadedModule);
             surgeryLegendSignature = signature;
@@ -3508,7 +3665,7 @@ function updateProtocolStateRows() {
         let row = document.getElementById(`${key}-row`);
         if (available && !row) row = ensureStateCardRow(`${key}-row`, label, `${key}-value`);
         if (!row) continue;
-        row.style.display = visible ? 'contents' : 'none';
+        row.style.display = visible ? 'flex' : 'none';
         if (row.firstElementChild) row.firstElementChild.textContent = `${label}:`;
         if (visible) {
             const target = document.getElementById(`${key}-value`);
@@ -3519,6 +3676,7 @@ function updateProtocolStateRows() {
 }
 
 function startSurgery(kind) {
+    if (stopForSurgeryRejection()) return;
     if (!getCurrentDecoderConfig()?.surgery || !currentDecoder) return;
     if (!currentDecoder[kind === 'merge' ? 'canMerge' : 'canSplit']()) return;
     // Keep the previous checkpoint; the next forward step captures the
@@ -3547,7 +3705,8 @@ function updateStatusRow() {
     if (!statusValue || !currentDecoder) return;
     updatePlayButtons();
 
-    const quiescentRun = advanceRequested && isDecoderQuiescent(currentDecoder);
+    const rejectedRun = isSurgeryRejectionTerminal();
+    const quiescentRun = !rejectedRun && advanceRequested && isDecoderQuiescent(currentDecoder);
     const check = quiescentRun || currentDecoder.logicalDataReady
         ? getRunLogicalCheck(currentDecoder) : { hasError: false };
     const data = logicalDataState(currentDecoder);
@@ -3556,14 +3715,21 @@ function updateStatusRow() {
             ? 'loading…' : '';
     // Ready data needs no state-card row; retain it only for loading or failure.
     const logicalRow = document.getElementById('logical-check-row');
-    if (logicalRow) logicalRow.style.display = currentDecoder.logicalDataReady && logicalText ? 'contents' : 'none';
+    if (logicalRow) logicalRow.style.display = currentDecoder.logicalDataReady && logicalText ? 'flex' : 'none';
     updateStatText(document.getElementById('logical-check-value'), logicalText);
     const logicalCheck = quiescentRun ? check : null;
-    // The unavailable verdict must wrap inside the value column, including
+    // The unavailable verdict must wrap beside its label, including
     // under the three-pillar stylesheet's normally unwrapped status rule.
     statusValue.style.whiteSpace = logicalCheck?.unavailable ? 'normal' : '';
     statusValue.style.minWidth = logicalCheck?.unavailable ? '0' : '';
-    if (logicalCheck) {
+    if (rejectedRun) {
+        currentDecoder.finishRunPresentation?.(animationStepIntervalMs());
+        updateStatText(statusValue, 'failure');
+        statusValue.style.color = '#f87171';
+        statusValue.style.fontWeight = '600';
+        statusValue.style.width = '';
+        statusValue.style.justifySelf = '';
+    } else if (logicalCheck) {
         const hasLogicalError = !!logicalCheck.hasError;
         // TASK 4bg: back to "failure" (TASK 4bc delta had tried "logical
         // error"; reverted by user's choice).
@@ -3582,8 +3748,8 @@ function updateStatusRow() {
         updateStatText(statusValue, 'fail (timeout)');
         statusValue.style.color = '#f87171';
         statusValue.style.fontWeight = '600';
-        // Size the longer verdict to its text and align its right edge
-        // with the fixed value column, using the free space to the left.
+        // Size the longer verdict to its text; the row keeps it at the
+        // shared right edge using the free space beside its own label.
         statusValue.style.width = 'max-content';
         statusValue.style.justifySelf = 'end';
     } else {
@@ -3658,6 +3824,7 @@ function animationStepIntervalMs() {
 // that isn't actually the terminating one.
 function animate(currentTime) {
     if (!isPlaying || !currentDecoder) return;
+    if (stopForSurgeryRejection()) return;
 
     if (!lastAnimationTime) {
         // First frame of this Play session (or the very first ever): no
@@ -3777,7 +3944,7 @@ function updateStats() {
     // .clock value, independent of this flag).
     const asyncActive = ASYNC_MODE_ENABLED && !!document.getElementById('uncoordinated')?.checked;
     const hasMeaningfulClock = Number.isFinite(currentDecoder.clock);
-    if (clockRow) clockRow.style.display = (asyncActive || !hasMeaningfulClock) ? 'none' : 'contents'; // TASK 4bc(1) delta: .stat-row is display:contents now, not its own grid
+    if (clockRow) clockRow.style.display = (asyncActive || !hasMeaningfulClock) ? 'none' : 'flex';
     // Hierarchical streaming starts its internal time at -1, before the
     // first round. Show a fresh system's clock as 0 without changing that
     // dynamics sentinel; subsequent steps use the decoder's own clock.
@@ -3786,12 +3953,12 @@ function updateStats() {
     updateStatText(syndromeCount, decoderDefects);
     const errorsRow = document.getElementById('errors-row');
     const showErrorCount = !!getCurrentDecoderConfig()?.showErrorCount;
-    if (errorsRow) errorsRow.style.display = showErrorCount ? 'contents' : 'none';
+    if (errorsRow) errorsRow.style.display = showErrorCount ? 'flex' : 'none';
     if (showErrorCount) updateStatText(document.getElementById('error-count'), currentDecoder.getErrorCount());
 
     const messagesRow = ensureStateCardRow('messages-row', 'messages', 'messages-count');
     const showMessages = ['xcube_lineon', 'xcube_fracton', 'haah_streaming'].includes(currentDecoderType);
-    if (messagesRow) messagesRow.style.display = showMessages ? 'contents' : 'none';
+    if (messagesRow) messagesRow.style.display = showMessages ? 'flex' : 'none';
     if (showMessages) updateStatText(document.getElementById('messages-count'), currentDecoder.getMemoryCount());
 
     ensureStateCardRow('logical-check-row', 'logical check', 'logical-check-value');
@@ -3802,9 +3969,9 @@ function updateStats() {
     // corrected physical system's syndrome; preparation/injection getters
     // measure that syndrome relative to psi. Other cards keep one row.
     const hasSystemDefects = typeof currentDecoder.getSystemDefectCount === 'function';
-    if (defectsRow) defectsRow.style.display = hasSystemDefects ? 'none' : 'contents';
-    if (decoderDefectsRow) decoderDefectsRow.style.display = hasSystemDefects ? 'contents' : 'none';
-    if (systemDefectsRow) systemDefectsRow.style.display = hasSystemDefects ? 'contents' : 'none';
+    if (defectsRow) defectsRow.style.display = hasSystemDefects ? 'none' : 'flex';
+    if (decoderDefectsRow) decoderDefectsRow.style.display = hasSystemDefects ? 'flex' : 'none';
+    if (systemDefectsRow) systemDefectsRow.style.display = hasSystemDefects ? 'flex' : 'none';
     if (systemDefectsRow) systemDefectsRow.title = typeof currentDecoder.getProtocolState === 'function'
         ? `Residual syndrome relative to the ${currentDecoder.frameCommitted ? 'committed' : 'current'} frame ψ`
         : '';

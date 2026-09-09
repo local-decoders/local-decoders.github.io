@@ -1,7 +1,7 @@
 // Glyph presentation of the hierarchical surface decoder. All
 // simulation state and updates are inherited from SurfaceCGStreamingDecoder.
 import {
-    SurfaceCGStreamingDecoder, LEVEL_COLORS as ORIGINAL_LEVEL_COLORS,
+    SurfaceCGStreamingDecoder,
     COLOR_ERROR, COLOR_CORRECTION, ROUGH_BOUNDARY_COLOR, ROUGH_BOUNDARY_WIDTH, syndromeOpen,
 } from './surface_cg_streaming.js';
 import {
@@ -10,8 +10,10 @@ import {
 } from './repetition2.js';
 import { drawMessageCell } from './toric2.js';
 
-// Match the original hierarchy palette. The HTML legend reads this alias.
-export const HTREE_LEVEL_COLORS = [...ORIGINAL_LEVEL_COLORS];
+// Figure 7's l0grey, steelblue and brick; reserve purple for condensation.
+export const HTREE_LEVEL_COLORS = ['#aaaaaa', '#316caf', '#b2352a', '#464646'];
+// Promotion wiring is coloured by its source slice, as in the right panel.
+export const HTREE_FUNNEL_COLORS = ['#78a5d7', '#b2352a', '#464646'];
 export { HTREE_LEVEL_COLORS as LEVEL_COLORS };
 export {
     COLOR_ORB_RIM, COLOR_ERROR, COLOR_CORRECTION,
@@ -23,14 +25,31 @@ export {
 
 export const HTREE_GLYPH_SIDE_RATIO = 0.42;
 export const HTREE_CORNER_RADIUS_RATIO = 0.08;
-export const HTREE_GLYPH_EDGE_WIDTH = 0.8;
+export const HTREE_GLYPH_EDGE_WIDTH = 1;
 // Lattice edges coincide with boundary stroke centres, keeping the full
 // condensing stroke inside the unchanged panel rectangle.
 export const HTREE_BOUNDARY_INSET = ROUGH_BOUNDARY_WIDTH / 2;
 export const HTREE_SMOOTH_BOUNDARY_WIDTH = 1.3;
-export const HTREE_FILL_TINT = 0.08;
-export const HTREE_EDGE_COLOR_FACTOR = 1;
-export const HTREE_STREET_OPACITY = 0.42;
+// 'hatched', 'zigzag' or 'plain'; only condensing edges use this style.
+export let HTREE_CONDENSING_BOUNDARY_STYLE = 'plain';
+export function setHTreeCondensingBoundaryStyle(style) {
+    HTREE_CONDENSING_BOUNDARY_STYLE = ['hatched', 'zigzag', 'plain'].includes(style)
+        ? style : 'plain';
+}
+export const HTREE_BOUNDARY_HATCH_PITCH_RATIO = 0.5;
+export const HTREE_BOUNDARY_HATCH_LENGTH_RATIO = 0.45;
+export const HTREE_BOUNDARY_HATCH_WIDTH = 1.5;
+export const HTREE_BOUNDARY_HATCH_INWARD = true;
+export const HTREE_BOUNDARY_ZIGZAG_AMPLITUDE_RATIO = 0.25;
+export const HTREE_BOUNDARY_LEGEND_SCALE = 0.5;
+// Figure 7's minicomp: white-tinted outer square and optional dark inner square.
+export const HTREE_FILL_TINT = 0.25;
+export const HTREE_EDGE_DARKEN = 0.30;
+export const HTREE_INNER_SQUARE = false;
+export const HTREE_INNER_DARKEN = 0.15;
+export const HTREE_INNER_SIDE_RATIO = 0.49;
+export const HTREE_EDGE_COLOR_FACTOR = 1 - HTREE_EDGE_DARKEN;
+export const HTREE_STREET_OPACITY = 1;
 export const HTREE_STREET_WIDTH = 0.85;
 // Preserve the base renderer's residual string weights in CSS pixels.
 export const HTREE_RESIDUAL_STRING_MIN_WIDTH = 2.1;
@@ -47,9 +66,10 @@ export const HTREE_STREET_PULSE_STEPS_PER_LEVEL = true;
 export const HTREE_SPLIT_PHASE_FRACTION = 0.5;
 // Compatibility alias for the paused/manual duration.
 export const HTREE_MOVE_HIGHLIGHT_MS = HTREE_PULSE_MAX_MS;
-// Compatibility export only; all hierarchy movement uses correction green.
+// Compatibility exports retain the original move-highlight colours.
 export const HTREE_MOVE_HIGHLIGHT_COLOR = 'rgb(175,55,55)';
 export const HTREE_MOVE_HIGHLIGHT_COLOR_POSITIVE = COLOR_CORRECTION;
+export const HTREE_TRANSIT_COLOR = 'rgb(0,128,128)';
 export const HTREE_MOVE_NEUTRAL_COLOR = COLOR_GRID;
 export const HTREE_MOVE_HIGHLIGHT_WIDTH_FACTOR = 2.5;
 // The comet occupies the trailing fraction of its source-to-target path.
@@ -153,16 +173,18 @@ export function matchHTreePromotions(previousMaps, currentMaps, promotionArrival
 
 function mixColor(hex, factor, background = 0) {
     const rgb = hex.slice(1).match(/../g).map(channel =>
-        Math.round(parseInt(channel, 16) * factor + background * (1 - factor)));
+        // Decimal TikZ mixes round half up, including 175 * 0.7 = 122.5.
+        Math.round(parseInt(channel, 16) * factor + background * (1 - factor) + 1e-10));
     return `rgb(${rgb.join(',')})`;
 }
 
-function glyphColors(color) {
+export function glyphColors(color) {
     return { fill: mixColor(color, HTREE_FILL_TINT, 255),
-        edge: mixColor(color, HTREE_EDGE_COLOR_FACTOR) };
+        edge: mixColor(color, HTREE_EDGE_COLOR_FACTOR),
+        inner: mixColor(color, 1 - HTREE_INNER_DARKEN) };
 }
 
-function drawSiteGlyph(ctx, x, y, side, colors, mask = 0) {
+export function drawSiteGlyph(ctx, x, y, side, colors, mask = 0) {
     const left = x - side / 2, top = y - side / 2;
     ctx.beginPath();
     ctx.roundRect(left, top, side, side, side * HTREE_CORNER_RADIUS_RATIO);
@@ -176,6 +198,12 @@ function drawSiteGlyph(ctx, x, y, side, colors, mask = 0) {
         ctx.scale(side, side);
         drawMessageCell(ctx, 0, 0, 1, 1, mask);
         ctx.restore();
+    } else if (HTREE_INNER_SQUARE) {
+        // Messages retain their full tile; resting sites can opt in to a core.
+        // Absorbing protocol sites retain their neutral colour override.
+        const innerSide = side * HTREE_INNER_SIDE_RATIO;
+        ctx.fillStyle = colors.inner ?? colors.edge;
+        ctx.fillRect(x - innerSide / 2, y - innerSide / 2, innerSide, innerSide);
     }
     // The message helper changes the current path; rebuild the edge.
     ctx.beginPath();
@@ -183,6 +211,64 @@ function drawSiteGlyph(ctx, x, y, side, colors, mask = 0) {
     ctx.strokeStyle = colors.edge;
     ctx.lineWidth = HTREE_GLYPH_EDGE_WIDTH;
     ctx.stroke();
+}
+
+// The outer normal is expressed in local panel coordinates, so rotated
+// surgery views inherit the same edge treatment. Decorations point back
+// into the patch; a split seam points into both adjacent patches.
+export function drawCondensingBoundary(ctx, x1, y1, x2, y2, cellSize, outerX, outerY,
+    style = HTREE_CONDENSING_BOUNDARY_STYLE, bothSides = false) {
+    const length = Math.hypot(x2 - x1, y2 - y1);
+    if (!length || !(cellSize > 0)) return;
+    const pitch = cellSize * HTREE_BOUNDARY_HATCH_PITCH_RATIO;
+    const tickLength = cellSize * HTREE_BOUNDARY_HATCH_LENGTH_RATIO;
+    const dx = (x2 - x1) / length, dy = (y2 - y1) / length;
+    const sides = bothSides ? [-1, 1] : [HTREE_BOUNDARY_HATCH_INWARD ? -1 : 1];
+    ctx.save();
+    ctx.strokeStyle = ROUGH_BOUNDARY_COLOR;
+    ctx.lineWidth = ROUGH_BOUNDARY_WIDTH;
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    if (style === 'zigzag') {
+        const amplitude = cellSize * HTREE_BOUNDARY_ZIGZAG_AMPLITUDE_RATIO;
+        // Leave room for the round joins and angled caps at both ends.
+        // The full-width solid stroke above remains continuous at corners.
+        const margin = ROUGH_BOUNDARY_WIDTH / 2;
+        if (length > 2 * margin) {
+            ctx.beginPath();
+            for (const sign of sides) {
+                ctx.moveTo(x1 + dx * margin, y1 + dy * margin);
+                for (let at = margin + pitch / 2, index = 0;
+                    at < length - margin; at += pitch / 2, index++) {
+                    const offset = index % 2 ? 0 : sign * amplitude;
+                    ctx.lineTo(x1 + dx * at + outerX * offset,
+                        y1 + dy * at + outerY * offset);
+                }
+                ctx.lineTo(x2 - dx * margin, y2 - dy * margin);
+            }
+            ctx.stroke();
+        }
+    }
+    if (style === 'hatched') {
+        ctx.lineWidth = HTREE_BOUNDARY_HATCH_WIDTH;
+        ctx.beginPath();
+        const margin = HTREE_BOUNDARY_HATCH_WIDTH / 2;
+        for (let at = Math.max(pitch / 2, margin); at <= length - margin; at += pitch) {
+            const x = x1 + dx * at, y = y1 + dy * at;
+            for (const sign of sides) {
+                const edge = sign * ROUGH_BOUNDARY_WIDTH / 2;
+                const tip = edge + sign * tickLength;
+                ctx.moveTo(x + outerX * edge, y + outerY * edge);
+                ctx.lineTo(x + outerX * tip, y + outerY * tip);
+            }
+        }
+        ctx.stroke();
+    }
+    ctx.restore();
 }
 
 function latticeBounds(panel) {
@@ -258,8 +344,8 @@ function drawMovePulse(ctx, path, elapsedMs, durationMs) {
             // Project the full tail onto each segment's axis; its opacity
             // stays continuous through bends, fading into the exposed wire.
             const gradient = ctx.createLinearGradient(...pointAt(tailDistance), ...pointAt(head.distance));
-            gradient.addColorStop(0, `${COLOR_CORRECTION}00`);
-            gradient.addColorStop(1, COLOR_CORRECTION);
+            gradient.addColorStop(0, HTREE_TRANSIT_COLOR.replace('rgb(', 'rgba(').replace(')', ',0)'));
+            gradient.addColorStop(1, HTREE_TRANSIT_COLOR);
             ctx.strokeStyle = gradient;
             ctx.beginPath();
             ctx.moveTo(...pointAt(start)); ctx.lineTo(...pointAt(end));
@@ -271,7 +357,7 @@ function drawMovePulse(ctx, path, elapsedMs, durationMs) {
     // keeping it visible until the exact instant the occupancy changes.
     if (HTREE_PULSE_ABSORB && head.progress >= 1 - HTREE_PULSE_HEAD_FRACTION) return;
     // A full-opacity round tip stays legible at the fine glyph pitch.
-    ctx.fillStyle = COLOR_CORRECTION;
+    ctx.fillStyle = HTREE_TRANSIT_COLOR;
     ctx.beginPath();
     ctx.arc(...head.point, ctx.lineWidth / 2, 0, 2 * Math.PI);
     ctx.fill();
@@ -282,7 +368,7 @@ function drawPulseArrivalHead(ctx, path, elapsedMs, durationMs, landed = false) 
     if (!head.point || !head.length || (head.progress >= 1 && !landed)
         || (!landed && (!HTREE_PULSE_ABSORB
             || head.progress < 1 - HTREE_PULSE_HEAD_FRACTION))) return;
-    ctx.fillStyle = COLOR_CORRECTION;
+    ctx.fillStyle = HTREE_TRANSIT_COLOR;
     ctx.beginPath();
     ctx.arc(...head.point, HTREE_STREET_WIDTH * HTREE_MOVE_HIGHLIGHT_WIDTH_FACTOR
         * HTREE_PULSE_WIDTH_FACTOR / 2, 0, 2 * Math.PI);
@@ -676,11 +762,9 @@ export class SurfaceCGHTreeDecoder extends SurfaceCGStreamingDecoder {
         // beyond them. Both panels share these inset lattice bounds.
         const top = lattice.top - HTREE_SMOOTH_BOUNDARY_WIDTH / 2;
         const bottom = lattice.bottom + HTREE_SMOOTH_BOUNDARY_WIDTH / 2;
-        ctx.strokeStyle = ROUGH_BOUNDARY_COLOR;
-        ctx.lineWidth = ROUGH_BOUNDARY_WIDTH;
-        ctx.lineCap = 'butt';
-        for (const x of [lattice.left, lattice.right]) {
-            ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke();
+        const cellSize = Math.min(lattice.w / this.Lx, lattice.h / this.Ly);
+        for (const [x, outward] of [[lattice.left, -1], [lattice.right, 1]]) {
+            drawCondensingBoundary(ctx, x, top, x, bottom, cellSize, outward, 0);
         }
     }
 
@@ -763,7 +847,7 @@ export class SurfaceCGHTreeDecoder extends SurfaceCGStreamingDecoder {
             ctx.lineWidth = HTREE_FUNNEL_WIDTH;
             for (let k = 1; k < levels.length; k++) {
                 const childScale = levels[k - 1].scale;
-                ctx.strokeStyle = HTREE_LEVEL_COLORS[(k - 1) % HTREE_LEVEL_COLORS.length];
+                ctx.strokeStyle = HTREE_FUNNEL_COLORS[(k - 1) % HTREE_FUNNEL_COLORS.length];
                 ctx.beginPath();
                 for (const parent of levels[k].sites) {
                     const childY = ay => lattice.bottom -
@@ -782,6 +866,11 @@ export class SurfaceCGHTreeDecoder extends SurfaceCGStreamingDecoder {
             }
             ctx.restore();
         }
+
+        // Inward decoration stays behind travelling pulses and opaque sites.
+        this._drawPanelOutline(ctx, panel);
+        // Keep the condensing colour continuous through the smooth corners.
+        this._drawRoughBoundaries(ctx, panel);
 
         // Comets overlap as drawn; there is no static path or wire parity.
         // Opaque glyph fills keep the pulse on the exposed wires.
@@ -813,13 +902,6 @@ export class SurfaceCGHTreeDecoder extends SurfaceCGStreamingDecoder {
                     this._getProtocolGlyphColors?.(k, rx, ry) ?? colors, showMessages ? mask : 0);
             }
         }
-
-        // All wiring and message glyphs stay behind the boundaries.
-        // Orbs get a separate final pass so neither a
-        // boundary nor a later level's glyph can paint over a defect.
-        this._drawPanelOutline(ctx, panel);
-        // Keep the condensing colour continuous through the smooth corners.
-        this._drawRoughBoundaries(ctx, panel);
 
         // Arriving heads cover the glyph fill, but a defect already shown
         // at the receiver stays on top until arrival clears both. Boundary
@@ -885,7 +967,10 @@ export class SurfaceCGHTreeDecoder extends SurfaceCGStreamingDecoder {
             drawLevelStreets(ctx, lattice, cellW, cellH, 1, Lx, Ly, color);
             ctx.restore();
         }
+        this._drawPanelOutline(ctx, panel);
         if (showErrors) this._drawLevel0Strings(ctx, panel, { Ex, Ey });
+        // Condensing strokes cover residual strings at boundary contacts.
+        this._drawRoughBoundaries(ctx, panel);
         ctx.restore();
 
         for (let x = 0; x < Lx; x++) {
@@ -893,10 +978,7 @@ export class SurfaceCGHTreeDecoder extends SurfaceCGStreamingDecoder {
                 drawSiteGlyph(ctx, centerX(x), centerY(y), glyphSide, colors);
             }
         }
-        // Match the hierarchy's layer order: wiring, glyphs, boundaries,
-        // then defects. Residual sites have no coarse levels or timers.
-        this._drawPanelOutline(ctx, panel);
-        this._drawRoughBoundaries(ctx, panel);
+        // Defects remain above every glyph and boundary decoration.
         if (showSyndrome) {
             for (let x = 0; x < Lx; x++) {
                 for (let y = 0; y < Ly; y++) {

@@ -1,20 +1,18 @@
 // Two per-patch H trees, with the operation's geometry drawn independently
 // at every scale. The simulation remains in surface_cg_surgery.js.
 import { SurfaceCGSurgeryXDecoder, SurfaceCGSurgeryZDecoder } from './surface_cg_surgery.js';
-import { SurfaceCGHTreeDecoder, HTREE_LEVEL_COLORS, HTREE_BOUNDARY_INSET,
-    HTREE_GLYPH_SIDE_RATIO, HTREE_CORNER_RADIUS_RATIO, HTREE_GLYPH_EDGE_WIDTH,
-    HTREE_FILL_TINT, HTREE_STREET_OPACITY, HTREE_STREET_WIDTH,
+import { SurfaceCGHTreeDecoder, HTREE_LEVEL_COLORS, HTREE_FUNNEL_COLORS, HTREE_BOUNDARY_INSET,
+    HTREE_GLYPH_SIDE_RATIO, HTREE_STREET_OPACITY, HTREE_STREET_WIDTH, HTREE_TRANSIT_COLOR,
     HTREE_FUNNEL_OPACITY, HTREE_FUNNEL_WIDTH, HTREE_PULSE_MIN_MS,
     HTREE_PULSE_MAX_MS, HTREE_PULSE_HEAD_FRACTION, HTREE_MOVE_HIGHLIGHT_WIDTH_FACTOR,
     HTREE_PULSE_WIDTH_FACTOR, HTREE_SPLIT_PHASE_FRACTION, HTREE_CAPTION_GAP, HTREE_NARROW_CAPTION_HEIGHT,
     HTREE_NARROW_EDGE_MARGIN, HTREE_NARROW_PANEL_GAP, HTREE_SMOOTH_BOUNDARY_WIDTH,
-    htreePulsePosition, htreeVisualDefectMaps,
+    htreePulsePosition, htreeVisualDefectMaps, glyphColors, drawSiteGlyph, drawCondensingBoundary,
 } from './surface_cg_htree.js';
-import { syndromeOpen, COLOR_ERROR, COLOR_CORRECTION,
+import { syndromeOpen, COLOR_ERROR,
     ROUGH_BOUNDARY_COLOR, ROUGH_BOUNDARY_WIDTH } from './surface_cg_streaming.js';
 import { drawOrb, DEFECT_ORB_RADIUS, DEFECT_ORB_OUTLINE,
     CAPTION_SCALE, TLABEL_FONT_SIZE, anchorForCenteredInk } from './repetition2.js';
-import { drawMessageCell } from './toric2.js';
 
 export * from './surface_cg_htree.js';
 export { SURGERY_DEFAULT_SIZE, SURGERY_MAX_SIZE, SURGERY_SPACING_STEPS_PER_L,
@@ -32,27 +30,6 @@ export const SURGERY_Z_ROTATE_PRESENTATION = true;
 
 const presentations = new WeakMap();
 const pointKey = point => `${point.level}:${point.rx}:${point.ry}`;
-
-// Glyphs use exactly the established H-tree colors, rounded squares,
-// message tiles, street weights, defect orbs and pulse interpolation.
-function drawGlyph(ctx, x, y, side, color, mask) {
-    const channels = color.slice(1).match(/../g).map(value =>
-        Math.round(parseInt(value, 16) * HTREE_FILL_TINT + 255 * (1 - HTREE_FILL_TINT)));
-    const path = () => {
-        ctx.beginPath();
-        ctx.roundRect(x - side / 2, y - side / 2, side, side, side * HTREE_CORNER_RADIUS_RATIO);
-    };
-    path();
-    ctx.fillStyle = `rgb(${channels.join(',')})`;
-    ctx.fill();
-    if (mask) {
-        ctx.save(); ctx.clip();
-        ctx.translate(x - side / 2, y - side / 2); ctx.scale(side, side);
-        drawMessageCell(ctx, 0, 0, 1, 1, mask);
-        ctx.restore();
-    }
-    path(); ctx.strokeStyle = color; ctx.lineWidth = HTREE_GLYPH_EDGE_WIDTH; ctx.stroke();
-}
 
 function surgeryPresentation(Model) {
     return class extends Model {
@@ -302,6 +279,14 @@ function surgeryPresentation(Model) {
             const offset = physical || SURGERY_SEAM_SINGLE_LINE ? 0
                 : (level - (this.K - 1) / 2) * SURGERY_SEAM_LEVEL_OFFSET_PX;
             const condensing = this.sector === 'x' && geometry === 'split';
+            if (condensing) {
+                const x = lattice.left + (this.L + 0.5) * cellW + offset;
+                // The split seam absorbs into both adjacent patches; share
+                // the same inward decoration as their outer boundaries.
+                drawCondensingBoundary(ctx, x, lattice.top, x, lattice.bottom,
+                    Math.min(cellW, cellH), 1, 0, undefined, true);
+                return;
+            }
             ctx.save();
             ctx.strokeStyle = condensing ? ROUGH_BOUNDARY_COLOR
                 : geometry === 'split' ? '#000000' : SURGERY_OPEN_SEAM_COLOR;
@@ -333,7 +318,8 @@ function surgeryPresentation(Model) {
                 if (length && start < end) {
                     const at = distance => a.map((value, axis) => value + (b[axis] - value) * (distance - travelled) / length);
                     const gradient = ctx.createLinearGradient(...at(tail), ...at(head.distance));
-                    gradient.addColorStop(0, `${COLOR_CORRECTION}00`); gradient.addColorStop(1, COLOR_CORRECTION);
+                    gradient.addColorStop(0, HTREE_TRANSIT_COLOR.replace('rgb(', 'rgba(').replace(')', ',0)'));
+                    gradient.addColorStop(1, HTREE_TRANSIT_COLOR);
                     ctx.strokeStyle = gradient; ctx.beginPath(); ctx.moveTo(...at(start)); ctx.lineTo(...at(end)); ctx.stroke();
                 }
                 travelled += length;
@@ -373,7 +359,7 @@ function surgeryPresentation(Model) {
                 }
                 ctx.globalAlpha = HTREE_FUNNEL_OPACITY; ctx.lineWidth = HTREE_FUNNEL_WIDTH;
                 for (let k = 1; k < this.K; k++) {
-                    ctx.strokeStyle = HTREE_LEVEL_COLORS[(k - 1) % HTREE_LEVEL_COLORS.length]; ctx.beginPath();
+                    ctx.strokeStyle = HTREE_FUNNEL_COLORS[(k - 1) % HTREE_FUNNEL_COLORS.length]; ctx.beginPath();
                     for (const parent of levels[k].sites) {
                         // One parent bar and horizontal child stubs, exactly
                         // as in the hierarchical renderer's H funnels.
@@ -399,22 +385,23 @@ function surgeryPresentation(Model) {
                 }
             }
             ctx.globalAlpha = 1;
+            // Boundary decoration sits beneath moving defects and glyphs.
+            this._drawOuterBoundary(ctx, drawingPanel);
+            for (const { level } of layout.seamLines) this._drawSeam(ctx, layout, level);
             for (const move of moves) {
                 const from = point(move.from), to = point(move.to);
                 this._drawPulse(ctx, move.kind === 'promotion' ? [from, [to[0], from[1]], to] : [from, to], move.progress);
             }
             ctx.restore();
             for (let k = 0; k < this.K; k++) {
-                const sl = this.slices[k], color = HTREE_LEVEL_COLORS[k % HTREE_LEVEL_COLORS.length];
+                const sl = this.slices[k], colors = glyphColors(HTREE_LEVEL_COLORS[k % HTREE_LEVEL_COLORS.length]);
                 for (const { x, y, rx, ry } of levels[k].sites) {
                     if (this.sector === 'x' && k === 0 && rx === this.L && !this.seamPresent) continue;
                     const mask = options.showMessages ? (sl.m[0][rx][ry] ? 1 : 0)
                         | (sl.m[1][rx][ry] ? 2 : 0) | (sl.m[2][rx][ry] ? 4 : 0) : 0;
-                    drawGlyph(ctx, x, y, glyphSide, color, mask);
+                    drawSiteGlyph(ctx, x, y, glyphSide, colors, mask);
                 }
             }
-            this._drawOuterBoundary(ctx, drawingPanel);
-            for (const { level } of layout.seamLines) this._drawSeam(ctx, layout, level);
             if (showSyndrome) {
                 const maps = this.getVisualDefectMaps(now);
                 for (let k = 0; k < this.K; k++) for (const site of levels[k].sites) {
@@ -438,6 +425,7 @@ function surgeryPresentation(Model) {
 
         _drawSurgeryResidual(ctx, layout, options) {
             const { lattice, cellW, cellH, glyphSide, drawingPanel: panel } = layout;
+            const colors = glyphColors(HTREE_LEVEL_COLORS[0]);
             const corrections = this.expandCorrection();
             const residualX = this.bx.map((column, x) => column.map((bit, y) => bit !== corrections.Ex[x][y]));
             const residualY = this.by.map((column, x) => column.map((bit, y) => bit !== corrections.Ey[x][y]));
@@ -458,6 +446,9 @@ function surgeryPresentation(Model) {
                 }
                 ctx.stroke(); ctx.globalAlpha = 1;
             }
+            SurfaceCGHTreeDecoder.prototype._drawPanelOutline.call(this, ctx, panel);
+            const condensingSeam = this.sector === 'x' && !this.seamPresent;
+            if (!condensingSeam) this._drawSeam(ctx, layout, 0, true);
             if (options.showErrors !== false) {
                 // Removed seam qubits are absent from the system picture;
                 // retained correction channels still contribute to its frame.
@@ -467,14 +458,15 @@ function surgeryPresentation(Model) {
                 }
                 SurfaceCGHTreeDecoder.prototype._drawLevel0Strings.call(this, ctx, panel, corrections);
             }
+            // Condensing edges and the seam cover residual-string contacts.
+            SurfaceCGHTreeDecoder.prototype._drawRoughBoundaries.call(this, ctx, panel);
+            if (condensingSeam) this._drawSeam(ctx, layout, 0, true);
             for (let x = 0; x < this.Lx; x++) for (let y = 0; y < this.Ly; y++) {
                 if (this.sector === 'x' && x === this.L && !this.seamPresent) continue;
                 const px = lattice.left + (x + 0.5) * cellW, py = lattice.bottom - (y + 0.5) * cellH;
-                drawGlyph(ctx, px, py, glyphSide, HTREE_LEVEL_COLORS[0], 0);
+                drawSiteGlyph(ctx, px, py, glyphSide, colors, 0);
                 if (options.showSyndrome !== false && syndrome[x][y]) drawOrb(ctx, px, py, glyphSide, DEFECT_ORB_RADIUS, DEFECT_ORB_OUTLINE);
             }
-            this._drawOuterBoundary(ctx, panel);
-            this._drawSeam(ctx, layout, 0, true);
             ctx.restore();
         }
     };

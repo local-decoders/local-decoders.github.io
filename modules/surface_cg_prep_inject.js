@@ -52,8 +52,8 @@ import {
     SURFACE_CG_ERASURE_PER_SLICE_CADENCE,
 } from './surface_cg_streaming.js';
 
-export const PREP_WALL_M = 3;
-export const INJECTION_DRIFT_PERIOD = 8;
+export const PREP_WALL_M = 2;
+export const INJECTION_DRIFT_PERIOD = 4;
 export const INJECTION_CORNER = 'top-left';
 export const INJECTION_FRAME_OUTCOME_PROBABILITY = 0.5;
 
@@ -76,6 +76,10 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
             throw new Error(`Unsupported injection corner: ${corner}`);
         }
         super(L, clockPeriod, opts);
+        if (opts.tuning) {
+            this.tuning = { ...opts.tuning };
+            this.reset();
+        }
         this.injectionCorner = corner;
         this.qStar.y = corner === 'top-left' ? this.Ly - 1 : 0;
     }
@@ -89,7 +93,8 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
         super.reset();
         this.protocolSchedule = [0];
         for (let k = 0; k < this.K; k++) {
-            this.protocolSchedule.push(this.protocolSchedule[k] + PREP_WALL_M * this.t0 * this.n ** k);
+            this.protocolSchedule.push(this.protocolSchedule[k]
+                + (this.tuning?.prepWallM ?? PREP_WALL_M) * this.t0 * this.n ** k);
         }
         this.frame = make2D(this.Lx, this.Ly, false);
         this.committedFrame = null;
@@ -328,7 +333,8 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
             this.lastProtocolStages.push('splitting');
             condensations = this._applySplitting(onMove);
         }
-        if (this.protocolKind === 'inject' && this.t >= 0 && this.t % INJECTION_DRIFT_PERIOD === 0) {
+        if (this.protocolKind === 'inject' && this.t >= 0
+            && this.t % (this.tuning?.injectionDriftPeriod ?? INJECTION_DRIFT_PERIOD) === 0) {
             this.lastProtocolStages.push('drift');
             this._applyDrift(onMove);
         }

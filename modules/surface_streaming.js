@@ -980,7 +980,7 @@ export class SurfaceStreamingDecoder {
             }
 
             // Rough boundaries marked on left/right edges.
-            ctx.strokeStyle = '#a78bfa';
+            ctx.strokeStyle = '#8764b9';
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.moveTo(xAt(-0.5), yAt(-0.5));
@@ -1159,7 +1159,7 @@ export class SurfaceStreamingDecoder {
         legendItem('#0f172a', 'defect', false);
         legendItem('#ef4444', 'residual error', true, true);
         legendItem('#fbbf24', 'residual syndrome', false);
-        legendItem('#a78bfa', 'rough boundary', true);
+        legendItem('#8764b9', 'rough boundary', true);
         legendItem('#ea580c', 'detector event', true);
         if (showMessages) legendItem('rgba(96,165,250,0.6)', 'm00/m01/m10', false);
     }

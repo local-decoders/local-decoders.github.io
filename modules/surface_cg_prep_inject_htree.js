@@ -4,7 +4,7 @@
 // 5548: the wall/region is implemented on each coarse lattice itself.
 import { SurfaceCGPrepDecoder, SurfaceCGInjectDecoder } from './surface_cg_prep_inject.js';
 import {
-    SurfaceCGHTreeDecoder, HTREE_LEVEL_COLORS, HTREE_PULSE_MAX_MS,
+    SurfaceCGHTreeDecoder, HTREE_LEVEL_COLORS, HTREE_FUNNEL_COLORS, HTREE_PULSE_MAX_MS,
     HTREE_STREET_OPACITY, HTREE_STREET_WIDTH,
     HTREE_FUNNEL_OPACITY, HTREE_FUNNEL_WIDTH,
 } from './surface_cg_htree.js';
@@ -177,7 +177,7 @@ function protocolPresentation(Model, injection) {
             for (let k = 1; k < levels.length; k++) {
                 for (const absorbing of [false, true]) {
                     ctx.strokeStyle = absorbing ? PROTOCOL_ABSORBING_EDGE
-                        : HTREE_LEVEL_COLORS[(k - 1) % HTREE_LEVEL_COLORS.length];
+                        : HTREE_FUNNEL_COLORS[(k - 1) % HTREE_FUNNEL_COLORS.length];
                     ctx.beginPath();
                     for (const parent of levels[k].sites) {
                         if (this.isAbsorbingSite(k, parent.rx, parent.ry) !== absorbing) continue;

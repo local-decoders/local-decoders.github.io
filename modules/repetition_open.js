@@ -1,4 +1,6 @@
 // Repetition Code with Open Boundary Conditions Decoder Module
+import { ROUGH_BOUNDARY_COLOR } from './surface_streaming_3d.js';
+
 export class RepetitionCodeOpenDecoder {
     constructor(L) {
         this.L = L;
@@ -109,7 +111,7 @@ export class RepetitionCodeOpenDecoder {
             ctx.stroke();
 
             // Draw boundary indicators
-            ctx.strokeStyle = '#a78bfa';
+            ctx.strokeStyle = ROUGH_BOUNDARY_COLOR;
             ctx.lineWidth = 4;
             ctx.beginPath();
             ctx.moveTo(offsetX - 10, offsetY - 10);

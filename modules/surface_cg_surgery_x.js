@@ -64,7 +64,8 @@ export class SurfaceCGSurgeryXDecoder extends SurfaceCGSurgeryDecoder {
         this._seamLeft = this.slices.map(sl => Array(sl.Ly).fill(false));
         this._seamRight = this.slices.map(sl => Array(sl.Ly).fill(false));
         this._seamChild = this.slices.map(sl => Array.from({ length: sl.Ly }, () => Array(this.n).fill(false)));
-        this.trueSurgeryOutcome = null;
+        // Truth is held fixed across cycles; decoder-side "disagrees" means a decoding failure.
+        this.trueSurgeryOutcome = this._rng() < 0.5;
         this.surgeryOutcome = null;
         this.outcomeCheck = null;
         this.seamFrameCommitted = false;
@@ -118,7 +119,6 @@ export class SurfaceCGSurgeryXDecoder extends SurfaceCGSurgeryDecoder {
         const correction = this.expandCorrection();
         this._preMergeSupport = this._seamSupport(correction.Ex, correction.Ey);
         this.by[this.patchL].fill(false); // fresh seam qubits in |0>, main.tex:6181.
-        this.trueSurgeryOutcome = this._rng() < 0.5;
         for (let y = 0; y < this.patchL - 1; y++) this._seamHidden[y] = this._rng() < 0.5;
         this._seamHidden[this.patchL - 1] = this.trueSurgeryOutcome
             !== parity(this._seamHidden.slice(0, -1));

@@ -1,6 +1,6 @@
 // Host and standalone-decoder defaults share these tuning knobs. Keeping
 // them separate lets the host retain lazy rule/stage/logical-data loading.
-export const HAAH_STREAMING_DEFAULT_SIZE = 20;
+export const HAAH_STREAMING_DEFAULT_SIZE = 16;
 export const HAAH_STREAMING_MIN_SIZE = 3;
 export const HAAH_STREAMING_MAX_SIZE = 20;
 export const HAAH_STREAMING_DEFAULT_SLICES = 4;

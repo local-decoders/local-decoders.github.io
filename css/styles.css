@@ -62,10 +62,15 @@ html {
     --sp-6: 1.5rem;
     --sp-8: 2rem;
 
+    /* Optional below-band paragraph cap; none fills the band's content width.
+       Used only by .description-band #decoder-description. */
+    --description-measure: none;
+
     /* Radii */
     --r-sm: 4px;
     --r-md: 6px;
     --r-lg: 10px;
+    --r-outer: 0;
 
     /* Mono stack */
     --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
@@ -310,7 +315,7 @@ body {
     width: 260px;
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: var(--r-lg);
+    border-radius: var(--r-outer);
     /* TASK 4ef: this panel is its own scroll container (bounded by
        max-height + overflow-y:auto below), separate from the page-level
        one TASK 4du already stabilised -- whenever a tab's own parameter
@@ -677,27 +682,8 @@ input.slider-value:focus {
 }
 
 /* ---- Info / Stats Panel ---- */
-/* TASK 4ax: every row is now a fixed two-column grid (label column, value
-   column, fixed gap) instead of flex space-between, so the card's own
-   width is constant regardless of which rows are present or how long
-   their values get -- previously the card auto-sized to its widest row,
-   and since the whole overlay-stack is right-anchored (align-items:
-   flex-end), a longer "status" value (e.g. "running" vs "paused") made
-   the card itself wider, which shifted the card's LEFT edge -- and every
-   label with it -- even though the right edge (where values sit) stayed
-   put. Column widths are sized from real rendered measurements, not
-   character counts: 116px comfortably fits the longest label
-   ("residual defects:", measured 114px), 70px comfortably fits the
-   longest *common* value ("horizontal", measured 67px; also comfortably
-   fits step/defect/error counts up to 5 digits, measured 39px) and
-   status values (all <=47px). Two rarer logical-error descriptions
-   ("horizontal & vertical", "residual majority flipped" from
-   repetition_streaming) measure wider than that and would need a much
-   wider card to show in full -- deliberately not accommodated, since
-   that would reopen the canvas-overlap issue TASK 4aq's overlay-stack
-   max-width was tuned to fix; they still degrade gracefully via the
-   logical-error row's own ellipsis handling below, unchanged from before
-   this task. */
+/* Each state row gives its value the width remaining after its own
+   label. Long phrases wrap at spaces while all values share a right edge. */
 .info-panel {
     /* TASK 4ab: the "Data" heading is gone, so top/bottom padding is now
        symmetric (was var(--sp-2) top/bottom with the heading's own
@@ -709,24 +695,8 @@ input.slider-value:focus {
        the widest-canvas tabs (Haah's code) this card's own top-left corner
        is what still clips a sliver of the z-slice panel next to it, not
        the legend beneath it.
-       TASK 4bc(1) delta: this card is now the grid container itself
-       (grid-template-columns: max-content <fixed>), not each .stat-row
-       independently -- a shared grid across every row is required for
-       the label column to actually align between rows while still being
-       sized by max-content (an independent per-row grid would size each
-       row's label column to only that row's own label, defeating the
-       whole point). Each .stat-row becomes display:contents below,
-       hoisting its two <span> children in as direct items of *this*
-       grid, one row of the auto-flow each, rather than nesting its own
-       grid. max-content only measures currently-participating (not
-       display:none) items, so the label column comes out exactly as
-       wide as the longest label actually visible on the current tab --
-       "residual defects:" on the streaming tabs that show that row,
-       something much shorter everywhere else -- with no per-tab JS
-       measurement needed at all. width: fit-content (redundant with how
-       a non-stretched flex item already shrinks to its content in
-       .overlay-stack, but explicit for clarity) lets the whole card
-       narrow to match.
+       width: fit-content lets the card narrow to its content when it
+       is not stretched by the containing layout.
        TASK 4bi: background/border/border-radius/padding now shared with
        .legend (see that rule) so the two top-right cards look identical
        apart from content -- background and padding moved to the legend's
@@ -735,30 +705,23 @@ input.slider-value:focus {
        opaque one did; the legend's own asymmetric padding was dropped in
        favour of this card's tighter symmetric one instead, keeping the
        narrowing work from TASK 4bc/4bg rather than reopening it). */
-    display: grid;
-    /* Value column fixed (not max-content) at the widest possible common
-       status value -- TASK 4bg reverted the status word from "logical
-       error" back to "failure" (measured 47px at its actual bold weight,
-       same as "success"/"timeout"/"running"; "paused" and 5-digit counts
-       are both shorter still), so the column shrank to 60px, comfortably
-       past all of those with a small margin. */
-    grid-template-columns: max-content 60px;
-    column-gap: var(--sp-1);
-    row-gap: 2px; /* was each row's own 1px 0 padding -- moot once .stat-row is display:contents (no box to pad), so the vertical spacing moves here */
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
     width: fit-content;
     font-size: 0.7rem;
 }
 
 .stat-row {
-    display: contents;
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sp-1);
 }
 
 .stat-row span:first-child {
     color: var(--text-dim);
     white-space: nowrap;
-    /* No overflow/ellipsis/min-width needed on this side any more -- a
-       max-content column is by definition exactly as wide as its widest
-       participating item, so nothing assigned to it can ever overflow. */
+    flex-shrink: 0;
 }
 
 .stat-row span:last-child {
@@ -766,17 +729,18 @@ input.slider-value:focus {
     color: var(--text-bright);
     font-variant-numeric: tabular-nums;
     text-align: right;
-    white-space: nowrap;
-    overflow: hidden;
-    min-width: 0; /* the value column is still a fixed width, so this side keeps its overflow guard (e.g. repetition_streaming's rare long logical-error description) */
+    white-space: normal;
+    overflow-wrap: normal;
+    word-break: normal;
+    min-width: 0;
 }
 
-/* TASK 4af: the logical-error row's own description can run much longer
-   than any other row's value (see the .info-panel comment above) --
-   elide it with an ellipsis rather than letting it overflow or force the
-   fixed value column wider. */
-#logical-error-row span:last-child {
-    text-overflow: ellipsis;
+.stat-row .state-ok:last-child {
+    color: rgb(31, 138, 59);
+}
+
+.stat-row .state-bad:last-child {
+    color: rgb(175, 55, 55);
 }
 
 /* ---- Visualization ---- */
@@ -813,7 +777,7 @@ input.slider-value:focus {
     position: relative;
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: var(--r-lg);
+    border-radius: var(--r-outer);
     padding: var(--sp-5);
     /* TASK 4cc: TASK 4by/4ca had cut the top padding to 0 (and tightened
        .viz-title's own line-height below) to move the decoder title up --
@@ -922,6 +886,14 @@ body.layout-three-pillars .canvas-area {
    behaviour/gutter treatment as .control-panel (the left pillar's own
    card), so the two read as a matched pair -- see that rule's own TASK
    4du/4ef comments for why each of these specific properties is there. */
+body.layout-three-pillars .right-pillar,
+body.layout-three-pillars .description-band {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-outer);
+    padding: var(--sp-3) 7px var(--sp-3) var(--sp-3);
+}
+
 body.layout-three-pillars .right-pillar {
     display: flex;
     flex-direction: column;
@@ -934,10 +906,6 @@ body.layout-three-pillars .right-pillar {
     grid-column: 3;
     grid-row: 2;
     width: 240px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    padding: var(--sp-3) 7px var(--sp-3) var(--sp-3);
     position: sticky;
     top: var(--sp-5);
     max-height: calc(100vh - 2.5rem);
@@ -946,22 +914,16 @@ body.layout-three-pillars .right-pillar {
     z-index: 10;
 }
 
-/* TASK 4hh: use the stretched state card's remaining width for values,
-   preserving the shared label column and each value's right edge. */
-body.layout-three-pillars .info-panel {
-    grid-template-columns: max-content minmax(0, 1fr);
-}
-
 body.layout-three-pillars #status-value {
-    /* Keep the shared grid unchanged. Longer statuses grow left into
-       the unused space beside "status:", even when "residual defects:"
-       determines the label column, without wrapping or widening the card. */
+    /* Short statuses such as "noise stopped" stay on one line, growing
+       left into the unused space beside "status:". fit-content also
+       lets the host's explicitly wrapped unavailable verdict fit the
+       row without widening the card. */
     max-width: none;
-    min-width: max-content;
-    width: 100%;
+    min-width: 0;
+    width: fit-content;
     justify-self: end;
     white-space: nowrap;
-    overflow-wrap: normal;
     overflow: visible;
 }
 
@@ -975,6 +937,33 @@ body.layout-three-pillars .right-pillar .description-panel {
     align-self: stretch;
     width: 100%;
     max-width: none;
+}
+
+/* The centre column supplies its normal gap; the band cannot flex-shrink
+   the canvas box. Both outer boxes share the pillar finish above (no shadow). */
+body.layout-three-pillars .description-band {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+}
+
+body.layout-three-pillars .description-band .description-panel {
+    background: none;
+    backdrop-filter: none;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+}
+
+body.layout-three-pillars .description-band #decoder-description {
+    max-width: var(--description-measure);
+    text-align: left;
+}
+
+body.layout-three-pillars.description-below .right-pillar {
+    height: fit-content;
+    min-height: 0;
+    align-self: start;
 }
 
 /* No card floats over the canvas under this layout -- both overlay
@@ -1123,16 +1112,6 @@ body.layout-three-pillars .description-stack {
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--text-dim);
-}
-
-/* .info-panel is a grid (see above), unlike .legend -- without this the
-   heading, as a lone item, would land in column 1 only, leaving column 2
-   of its row empty and shifting every following label/value pair over by
-   one column. Spanning both columns keeps it its own full row instead,
-   and (being far shorter than "defects:"/"status:") it never ends up
-   being what sizes the max-content label column either. */
-.info-panel h3 {
-    grid-column: 1 / -1;
 }
 
 .legend-items {
@@ -1443,10 +1422,6 @@ body.layout-three-pillars .description-stack {
         font-size: var(--narrow-base-text, 15px);
     }
 
-    .info-panel {
-        grid-template-columns: minmax(0, 1fr) auto;
-    }
-
     .slider {
         background: linear-gradient(var(--border), var(--border)) center / 100% 3px no-repeat;
     }
@@ -1499,7 +1474,7 @@ body.layout-three-pillars .description-stack {
 .control-panel::-webkit-scrollbar-thumb,
 .right-pillar::-webkit-scrollbar-thumb {
     background: var(--border);
-    border-radius: 3px;
+    border-radius: var(--r-outer);
 }
 
 .control-panel::-webkit-scrollbar-thumb:hover,

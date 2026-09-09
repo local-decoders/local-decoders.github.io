@@ -3,14 +3,15 @@
 // distinct operations separated by a sufficiently large constant times L.
 import { SurfaceCGStreamingDecoder } from './surface_cg_streaming.js';
 
-export const SURGERY_SPACING_STEPS_PER_L = 2;
-export const SURGERY_CONDENSING_M = 3;
+export const SURGERY_SPACING_STEPS_PER_L = 1;
+export const SURGERY_CONDENSING_M = 2;
 export const SURGERY_DEFAULT_SIZE = 16;
 export const SURGERY_MAX_SIZE = 32;
 
 export class SurfaceCGSurgeryDecoder extends SurfaceCGStreamingDecoder {
     constructor(L, clockPeriod = 6, opts = {}) {
         super(L, clockPeriod, { ...opts, Ly: opts.sector === 'z' ? 2 * L : L });
+        if (opts.tuning) this.tuning = { ...opts.tuning };
         this.sector = opts.sector ?? 'z';
         this._initiallyMerged = !!opts.mergedFromStart;
         this._resetSurgeryState();
@@ -36,21 +37,24 @@ export class SurfaceCGSurgeryDecoder extends SurfaceCGStreamingDecoder {
 
     get stepsSinceLastSurgery() { return this.stepCount - this.lastSurgeryStep; }
     get nextSurgeryStep() {
-        const spaced = this.lastSurgeryStep + SURGERY_SPACING_STEPS_PER_L * this.L;
+        const spaced = this.lastSurgeryStep
+            + (this.tuning?.surgerySpacingStepsPerL ?? SURGERY_SPACING_STEPS_PER_L) * this.L;
         return this.surgery ? Math.max(spaced, this.surgery.completeTime + 1) : spaced;
     }
     canMerge() {
         return !this.surgery && this._stableSeamState === 'split'
-            && this.stepsSinceLastSurgery >= SURGERY_SPACING_STEPS_PER_L * this.L;
+            && this.stepsSinceLastSurgery
+                >= (this.tuning?.surgerySpacingStepsPerL ?? SURGERY_SPACING_STEPS_PER_L) * this.L;
     }
     canSplit() {
         return !this.surgery && this._stableSeamState === 'merged'
-            && this.stepsSinceLastSurgery >= SURGERY_SPACING_STEPS_PER_L * this.L;
+            && this.stepsSinceLastSurgery
+                >= (this.tuning?.surgerySpacingStepsPerL ?? SURGERY_SPACING_STEPS_PER_L) * this.L;
     }
 
     get seamState() {
         if (!this.surgery) return this._stableSeamState;
-        return `${this.surgery.kind === 'merge' ? 'merging' : 'splitting'} (${this.switchedSliceCount} of ${this.K} slices switched)`;
+        return `${this.surgery.kind === 'merge' ? 'merging' : 'splitting'} ${this.switchedSliceCount}/${this.K} slices`;
     }
     get switchedSliceCount() {
         if (!this.surgery) return this.K;
@@ -74,9 +78,10 @@ export class SurfaceCGSurgeryDecoder extends SurfaceCGStreamingDecoder {
         const switchTimes = Array.from({ length: this.K }, (_, k) => T +
             (this.sector === 'z'
                 ? this.delta(k + (kind === 'split' ? 1 : 0))
-                : this.delta(k) * (kind === 'merge' ? SURGERY_CONDENSING_M : 1)));
+                : this.delta(k) * (kind === 'merge'
+                    ? (this.tuning?.surgeryCondensingM ?? SURGERY_CONDENSING_M) : 1)));
         const completeTime = this.sector === 'x' && kind === 'merge'
-            ? T + SURGERY_CONDENSING_M * this.delta(this.K)
+            ? T + (this.tuning?.surgeryCondensingM ?? SURGERY_CONDENSING_M) * this.delta(this.K)
             : switchTimes[this.K - 1] + 1;
         this.surgery = { kind, T, switchTimes, completeTime };
         this.lastSurgeryStep = this.stepCount;

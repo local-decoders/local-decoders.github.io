@@ -63,7 +63,7 @@ import {
 // phenomenological surface tabs can never drift apart on this specific
 // styling choice again. Un-exported before TASK 4df, only ever used as
 // inline literals in drawRoughBoundaries()/the legend below.
-export const ROUGH_BOUNDARY_COLOR = '#a78bfa';
+export const ROUGH_BOUNDARY_COLOR = '#8764b9';
 // TASK 4di: 2.5 -> 4 -- the line read as too thin. TASK 4hs trims only
 // its ends at the horizontal frame edges, preserving the full normal width.
 export const ROUGH_BOUNDARY_WIDTH = 4;
