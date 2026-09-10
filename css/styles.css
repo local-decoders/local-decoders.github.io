@@ -52,6 +52,8 @@ html {
     --text-muted: #9ca3af;
     --error-red: #dc2626;
     --warning-amber: #d97706;
+    --state-ok-color: rgb(31, 138, 59);
+    --state-bad-color: rgb(175, 55, 55);
 
     /* Spacing */
     --sp-1: 0.25rem;
@@ -713,9 +715,11 @@ input.slider-value:focus {
 }
 
 .stat-row {
+    /* Right-aligned values use all space remaining after their labels. */
+    --state-row-label-value-gap: 0px;
     display: flex;
     justify-content: space-between;
-    gap: var(--sp-1);
+    gap: var(--state-row-label-value-gap);
 }
 
 .stat-row span:first-child {
@@ -736,11 +740,11 @@ input.slider-value:focus {
 }
 
 .stat-row .state-ok:last-child {
-    color: rgb(31, 138, 59);
+    color: var(--state-ok-color);
 }
 
 .stat-row .state-bad:last-child {
-    color: rgb(175, 55, 55);
+    color: var(--state-bad-color);
 }
 
 /* ---- Visualization ---- */
@@ -915,7 +919,7 @@ body.layout-three-pillars .right-pillar {
 }
 
 body.layout-three-pillars #status-value {
-    /* Short statuses such as "noise stopped" stay on one line, growing
+    /* Short statuses such as "reading out" stay on one line, growing
        left into the unused space beside "status:". fit-content also
        lets the host's explicitly wrapped unavailable verdict fit the
        row without widening the card. */

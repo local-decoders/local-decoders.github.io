@@ -75,8 +75,8 @@ export const NARROW_CODE_CAPACITY_CANVAS_ASPECT = 1.1;
 export const NARROW_HIERARCHICAL_CANVAS_ASPECT = 2.25;
 export const SURGERY_DEFAULT_SLICES = 3;
 export const SURGERY_Z_DEFAULT_SLICES = 3;
-// The UI ends rejected runs; decoder retries remain available to benchmarks.
-export const SURGERY_REJECTION_IS_TERMINAL = true;
+// The UI ends failed outcomes; decoder retries remain available to benchmarks.
+export const SURGERY_TERMINAL_FAILURES = ['indeterminate', 'disagrees'];
 export const SURFACE_CG_PROTOCOL_DEFAULT_SLICES = 3;
 export const SURGERY_MIN_SIZE = 3;
 export const SURGERY_X_NARROW_CANVAS_ASPECT = 1.3;
@@ -148,9 +148,8 @@ export const HTREE_LEGEND_TRANSIT_TAIL_HEAD_RATIO = 3;
 export const STEP_HISTORY_MAX = 500;
 const stepHistory = [];
 const redoHistory = [];
-// Keep rejection terminal for this decoder instance until Initialize or Reset
-// replaces it, even if another UI action would otherwise alter its state.
-const terminalSurgeryRejections = new WeakSet();
+// Latch the failure reason for the displayed step, and rewind it with history.
+const terminalSurgeryFailures = new WeakMap();
 
 // A completed decode waits this long for logical data before reporting
 // that the check is unavailable. A later response still updates the verdict.
@@ -360,10 +359,10 @@ function surgeryDecoderConfig(sector) {
     const xSector = sector === 'x';
     return {
         name: `lattice surgery rough merge (phenomenological, constant-resource-density, ${sector.toUpperCase()}-type stabilizer sector)`,
-        title: `lattice surgery on the constant-resource-density surface-code decoder, ${sector.toUpperCase()}-type stabilizer sector`,
+        title: `lattice surgery with the constant-resource-density surface-code decoder, ${sector.toUpperCase()}-type stabilizer sector`,
         description: xSector
-            ? 'Two <span class="nobreak"><i>L</i> × <i>L</i></span> surface-code patches sit side by side, with a vertical rough seam at their condensing boundaries. In the <i>X</i>-type stabilizer sector, merging adds a column of seam checks: the first measured outcomes initialize a seam frame and produce no detector events, while later rounds use ordinary measurement differences. The seam becomes non-absorbing slice by slice after delays proportional to each slice’s update period; an absorbing seam above the final slice collects the remaining seam defects before the frame and surgery outcome are committed. Splitting measures out the seam qubits, removes the seam checks and their detector events, and restores an absorbing seam with the corresponding slice delays. Each patch retains its own hierarchy, and coarse corrections across the seam expand through the physical seam qubits. Operations are separated by at least <span class="nobreak"><i>L</i></span> steps and wait for the previous introduction to finish. The state card reports the seam geometry, the committed outcome, and whether the decoded outcome agrees with the hidden outcome; a rejected merge is reported as indeterminate and ends the run.'
-            : 'Two <span class="nobreak"><i>L</i> × <i>L</i></span> surface-code patches sit side by side, with a vertical rough seam. The same physical rough merge is non-condensing in the <i>Z</i>-type stabilizer sector, which this decoder represents internally at a <i>y</i>-edge and displays after a quarter turn. Merging initializes the seam qubits in <span class="nobreak">|0⟩</span> and compares the first modified seam checks with their final pre-merge measurements; the merged geometry is introduced slice by slice with delays set by the slice update periods. Splitting measures out the seam qubits, includes those outcomes in the first post-split detector events, and introduces the split geometry with an additional slice delay. The measured bits are folded into the correction channels, whose final values commit a consistent seam frame. Each patch retains its own hierarchy, and coarse corrections across the seam expand through its physical qubits. Operations are separated by at least <span class="nobreak"><i>L</i></span> steps and wait for the previous introduction to finish. The state card reports the seam geometry and the committed frame.',
+            ? 'Two surface-code patches sit side by side, with a seam of qubits between them. In the <i>X</i>-type stabilizer sector, a lattice surgery merge operation joins the two patches together and adds a column of new stabilizers along the seam. The post-merge geometry is incorporated into the decoder slice by slice, and the surgery outcome is decoded in a local manner. After a fixed delay, the decoder commits to its current interpretation of the surgery outcome; below threshold, this interpretation matches the true surgery outcome with high probability. A lattice surgery splitting operation measures out the seam qubits, removes the new stabilizers, and incorporates the post-split geometry into the decoder slice by slice. In this simulation, both patches start in the logical <span class="nobreak">|0⟩</span> state, so the outcome of the first merge operation, which measures the joint logical <i>X̄X̄</i>, is random; afterwards, the value of this operator can change only through logical errors caused by phase noise. When local decoding of the surgery outcome fails to converge (in a suitably defined sense), the surgery outcome is deemed indeterminate; this event is treated as a heralded logical error. Failure can also occur by the decoder converging to the wrong outcome. Below threshold, both kinds of failure are extremely rare. The simulation ends after either occurs, although in a real experiment only heralded failures can be detected deterministically. Pressing the readout button ends the noise and lets the decoder run until it terminates; the run is deemed a success if the resulting correction causes no logical error(s) on the logical qubit(s) determined by the current geometry, and a failure otherwise.'
+            : 'Two surface-code patches sit side by side, with a seam of qubits between them. In the <i>Z</i>-type stabilizer sector, a lattice surgery merge operation joins the two patches together and modifies the stabilizers along the seam. The post-merge geometry is incorporated into the decoder slice by slice. A lattice surgery splitting operation measures out the seam qubits, modifies the seam stabilizers, and incorporates the post-split geometry into the decoder slice by slice. Pressing the readout button ends the noise and lets the decoder run until it terminates; the run is deemed a success if the resulting correction causes no logical error(s) on the logical qubit(s) determined by the current geometry, and a failure otherwise.',
         module: '../modules/surface_cg_surgery_htree.js',
         className: xSector ? 'SurfaceCGSurgeryXHTreeDecoder' : 'SurfaceCGSurgeryZHTreeDecoder',
         narrowAspect: xSector ? SURGERY_X_NARROW_CANVAS_ASPECT : SURGERY_Z_NARROW_CANVAS_ASPECT,
@@ -404,10 +403,10 @@ function protocolDecoderConfig(kind) {
     const protocol = injection ? 'injection' : 'preparation';
     return {
         name: `surface code state ${protocol} (phenomenological, constant-resource-density)`,
-        title: `constant-resource-density surface-code decoder during state ${protocol}`,
+        title: `state ${protocol} with the constant-resource-density surface-code decoder`,
         description: injection
-            ? 'In the <i>X</i>-type stabilizer sector diagnostic, |+⟩ is injected at the upper-left <i>q</i><sub>⋆</sub>, with a rising absorbing frame region in the upper-right half. Absorptions flip <i>ψ</i>; splitting precedes upward drift and ordinary decoding. Deterministic-site expiry rejects and restarts. After the hover, <i>ψ</i> is committed. After stop noise and drain, frame consistency compares residual syndrome with <i>ψ</i> on frame checks and zero elsewhere; the <span class="nobreak">X̄ = +1</span> readout proxy checks left-column parity adjusted by pre-round errors. Both proxy the paper’s cluster-based definitions.'
-            : 'In the <i>X</i>-type stabilizer sector diagnostic, data qubits are prepared in <span class="nobreak">|+⟩<sup>⊗<i>n</i></sup></span>, so ideal first-round <i>X</i>-check outcomes are deterministic. The first measured syndrome initializes a frame <i>ψ</i> without producing defects. An absorbing wall rises through the coarse slices at <span class="nobreak"><i>T</i><sub><i>k</i></sub> = <i>M</i> ∑<sub><i>j</i>&lt;<i>k</i></sub> <i>t</i><sub><i>j</i></sub></span>; absorbed defects flip <i>ψ</i>. Temporary final-slice timers collect defects during the hover. The wall disappears, <i>ψ</i> is committed, and ordinary decoding resumes. After stop noise and drain, frame consistency compares residual syndrome with <i>ψ</i>; the <span class="nobreak">X̄ = +1</span> readout proxy checks left-column parity adjusted by pre-round errors. These are proxies for the paper’s cluster-based failure definitions.',
+            ? 'In the <i>X</i>-type stabilizer sector diagnostic, |+⟩ is injected at the upper-left <i>q</i><sub>⋆</sub>, with a rising absorbing frame region in the upper-right half. Absorptions flip <i>ψ</i>; splitting precedes upward drift and ordinary decoding. Deterministic-site expiry rejects and restarts. After the hover, <i>ψ</i> is committed. After readout and drain, frame consistency compares residual syndrome with <i>ψ</i> on frame checks and zero elsewhere; the <span class="nobreak">X̄ = +1</span> readout proxy checks left-column parity adjusted by pre-round errors. Both proxy the paper’s cluster-based definitions.'
+            : 'In the <i>X</i>-type stabilizer sector diagnostic, data qubits are prepared in <span class="nobreak">|+⟩<sup>⊗<i>n</i></sup></span>, so ideal first-round <i>X</i>-check outcomes are deterministic. The first measured syndrome initializes a frame <i>ψ</i> without producing defects. An absorbing wall rises through the coarse slices at <span class="nobreak"><i>T</i><sub><i>k</i></sub> = <i>M</i> ∑<sub><i>j</i>&lt;<i>k</i></sub> <i>t</i><sub><i>j</i></sub></span>; absorbed defects flip <i>ψ</i>. Temporary final-slice timers collect defects during the hover. The wall disappears, <i>ψ</i> is committed, and ordinary decoding resumes. After readout and drain, frame consistency compares residual syndrome with <i>ψ</i>; the <span class="nobreak">X̄ = +1</span> readout proxy checks left-column parity adjusted by pre-round errors. These are proxies for the paper’s cluster-based failure definitions.',
         module: '../modules/surface_cg_prep_inject_htree.js',
         className: injection ? 'SurfaceCGInjectHTreeDecoder' : 'SurfaceCGPrepHTreeDecoder',
         narrowAspect: NARROW_HIERARCHICAL_CANVAS_ASPECT,
@@ -3209,6 +3208,7 @@ function captureStepState() {
         decoder: captureDecoderState(currentDecoder),
         advanceRequested,
         noiseStoppedAtStep,
+        terminalSurgeryFailure: terminalSurgeryFailures.get(currentDecoder) ?? null,
     };
 }
 
@@ -3232,6 +3232,11 @@ function restoreStepState(snapshot, fromPlayback = false, replay = false) {
     } : undefined);
     advanceRequested = snapshot.advanceRequested;
     noiseStoppedAtStep = snapshot.noiseStoppedAtStep;
+    if (snapshot.terminalSurgeryFailure) {
+        terminalSurgeryFailures.set(currentDecoder, snapshot.terminalSurgeryFailure);
+    } else {
+        terminalSurgeryFailures.delete(currentDecoder);
+    }
     // These sliders edit the rule immediately, so they must reflect the
     // restored rule too. Deferred Initialize inputs keep their pending values.
     if (Number.isFinite(currentDecoder.clockPeriod)) {
@@ -3253,7 +3258,6 @@ function restoreStepState(snapshot, fromPlayback = false, replay = false) {
 }
 
 function stepBackOnce(fromPlayback = false) {
-    if (stopForSurgeryRejection()) return false;
     if (!currentDecoder || stepHistory.length === 0) return false;
     finishInitialErrorsPointerGesture();
     redoHistory.push(captureStepState());
@@ -3262,7 +3266,6 @@ function stepBackOnce(fromPlayback = false) {
 }
 
 function stepBackSimulation() {
-    if (stopForSurgeryRejection()) return;
     if (!currentDecoder || stepHistory.length === 0) return;
     if (isPlaying) stopPlayback();
     return stepBackOnce();
@@ -3305,7 +3308,7 @@ function stepOnce() {
         return false;
     }
 
-    if (stopForSurgeryRejection()) return false;
+    if (stopForSurgeryFailure()) return false;
     finishInitialErrorsPointerGesture();
     // An already displayed verdict is today's STEP no-op. The first
     // request on a quiescent step-zero state still reveals its verdict,
@@ -3358,7 +3361,7 @@ function stepOnce() {
     } else {
         currentDecoder.step();
     }
-    if (stopForSurgeryRejection()) return false;
+    if (stopForSurgeryFailure()) return false;
     if (isRunOver()) {
         if (isPlaying) stopPlayback();
         updateStats();
@@ -3371,12 +3374,12 @@ function stepOnce() {
 // Both forward controls replay saved states before computing a fresh tick.
 // Timer ticks leave rendering and the scheduler clock to animate().
 function stepForwardOnce(fromPlayback = false) {
-    if (!currentDecoder || stopForSurgeryRejection()) return false;
+    if (!currentDecoder || stopForSurgeryFailure()) return false;
     finishInitialErrorsPointerGesture();
     if (redoHistory.length > 0) {
         pushStepHistory(captureStepState());
         restoreStepState(redoHistory.pop(), fromPlayback, true);
-        if (stopForSurgeryRejection()) return false;
+        if (stopForSurgeryFailure()) return false;
         if (isPlaying && isRunOver()) stopPlayback();
         return !isRunOver();
     }
@@ -3386,7 +3389,7 @@ function stepForwardOnce(fromPlayback = false) {
 }
 
 function stepSimulation() {
-    if (stopForSurgeryRejection()) return;
+    if (stopForSurgeryFailure()) return;
     if (!currentDecoder || (redoHistory.length === 0 && isRunOver())) return;
     if (isPlaying && playDirection === 'backward') stopPlayback();
     stepForwardOnce();
@@ -3394,7 +3397,7 @@ function stepSimulation() {
 }
 
 function shouldRestartStoppedNoiseRun() {
-    return !isSurgeryRejectionTerminal() && supportsNoiseStop() && !currentDecoder.isNoiseEnabled()
+    return !isSurgeryFailureTerminal() && supportsNoiseStop() && !currentDecoder.isNoiseEnabled()
         && ((advanceRequested && isDecoderQuiescent(currentDecoder)) || hasReachedStepLimit());
 }
 
@@ -3426,19 +3429,18 @@ function togglePlayBack() {
 }
 
 function togglePlayback() {
-    if (stopForSurgeryRejection()) return;
     if (isPlaying) return stopPlayback();
     return togglePlay();
 }
 
 function playForward() {
-    if (stopForSurgeryRejection()) return;
+    if (stopForSurgeryFailure()) return;
     if (isPlaying && playDirection === 'forward') return;
     return togglePlay();
 }
 
 function togglePlay(direction = 'forward') {
-    if (!currentDecoder || stopForSurgeryRejection()) return;
+    if (!currentDecoder || (direction === 'forward' && stopForSurgeryFailure())) return;
     // Guard before stopping the other direction or writing any DOM state.
     if (direction === 'backward' && stepHistory.length === 0) return;
     if (isPlaying && playDirection === direction) {
@@ -3482,7 +3484,7 @@ function togglePlay(direction = 'forward') {
 
 // The "Status" row is always shown (fixed position in the stats panel):
 // "running" during forward play; reverse uses the same status as manual
-// Back (including "paused" and "noise stopped"). Once
+// Back (including "paused" and "reading out"). Once
 // the user has actually asked to advance and quiescence was reached,
 // "success" -- or "failure" if checkLogicalError() reports a logical error
 // on the now-quiescent decoder, so a failed decode is never labelled a
@@ -3528,20 +3530,33 @@ function isManualStreamingRun() {
     return currentDecoderType === 'repetition_streaming' && !!currentDecoder?.manualMode;
 }
 
-function isSurgeryRejectionTerminal() {
-    return SURGERY_REJECTION_IS_TERMINAL && !!getCurrentDecoderConfig()?.surgery
-        && !!currentDecoder && (!!currentDecoder.rejected || terminalSurgeryRejections.has(currentDecoder));
+function getSurgeryTerminalFailure() {
+    if (!getCurrentDecoderConfig()?.surgery || !currentDecoder) return null;
+    const outcome = terminalSurgeryFailures.get(currentDecoder)
+        ?? (currentDecoder.rejected ? 'indeterminate'
+            : currentDecoder.sector === 'x' && currentDecoder.outcomeCheck === false ? 'disagrees' : null);
+    return SURGERY_TERMINAL_FAILURES.includes(outcome) ? outcome : null;
 }
 
-function stopForSurgeryRejection() {
-    if (!isSurgeryRejectionTerminal()) return false;
-    if (!terminalSurgeryRejections.has(currentDecoder)) {
-        terminalSurgeryRejections.add(currentDecoder);
+function isSurgeryFailureTerminal() {
+    return getSurgeryTerminalFailure() !== null;
+}
+
+function stopForSurgeryFailure() {
+    const failure = getSurgeryTerminalFailure();
+    if (!failure) return false;
+    const newlyFailed = !terminalSurgeryFailures.has(currentDecoder);
+    if (newlyFailed) {
+        terminalSurgeryFailures.set(currentDecoder, failure);
         if (currentDecoder.isNoiseEnabled?.()) {
             currentDecoder.setNoiseEnabled(false);
             noiseStoppedAtStep = currentDecoder.stepCount || 0;
         }
-        stopPlayback();
+    }
+    // Replaying a saved failure must stop the scheduler again, even though
+    // its failure reason and stopped-noise state were already restored.
+    stopPlayback();
+    if (newlyFailed) {
         updateStats();
         render();
     }
@@ -3551,7 +3566,7 @@ function stopForSurgeryRejection() {
 // Stop physical decoding at quiescence even while the logical verdict is
 // pending. watchLogicalData resolves that verdict without another step.
 function isRunOver() {
-    return !!currentDecoder && (isSurgeryRejectionTerminal() || (advanceRequested && isDecoderQuiescent(currentDecoder))
+    return !!currentDecoder && (isSurgeryFailureTerminal() || (advanceRequested && isDecoderQuiescent(currentDecoder))
         || hasReachedStepLimit());
 }
 
@@ -3592,6 +3607,11 @@ function supportsNoiseStop() {
         && typeof currentDecoder?.isNoiseEnabled === 'function';
 }
 
+function isNoiseStopped() {
+    return supportsNoiseStop()
+        && (noiseStoppedAtStep !== null || !currentDecoder.isNoiseEnabled());
+}
+
 function updateNoiseButton() {
     const noiseBtn = document.getElementById('noise-btn');
     if (!noiseBtn) return;
@@ -3600,7 +3620,7 @@ function updateNoiseButton() {
     const disabled = !available || !currentDecoder.isNoiseEnabled();
     if (noiseBtn.style.display !== display) noiseBtn.style.display = display;
     if (noiseBtn.disabled !== disabled) noiseBtn.disabled = disabled;
-    if (noiseBtn.textContent !== 'stop noise') noiseBtn.textContent = 'stop noise';
+    if (noiseBtn.textContent !== 'readout') noiseBtn.textContent = 'readout';
 }
 
 function updateSurgeryControls() {
@@ -3609,7 +3629,7 @@ function updateSurgeryControls() {
         const button = document.getElementById(`${kind}-btn`);
         if (!button) continue;
         button.style.display = available ? '' : 'none';
-        button.disabled = !available || isSurgeryRejectionTerminal()
+        button.disabled = !available || isNoiseStopped() || isSurgeryFailureTerminal()
             || !currentDecoder[kind === 'merge' ? 'canMerge' : 'canSplit']?.();
     }
     const xSector = available && currentDecoder.sector === 'x';
@@ -3622,11 +3642,9 @@ function updateSurgeryControls() {
     const introducing = state === 'merging' || state === 'splitting';
     row('seam-state', available, introducing
         ? `${state} (${currentDecoder.switchedSliceCount} of ${currentDecoder.K} slices switched)` : state);
-    row('seam-frame', available && !xSector, currentDecoder?.seamFrameCommitted
-        ? 'seam frame committed' : 'not committed');
     row('surgery-outcome', xSector, currentDecoder?.surgeryOutcome ?? 'pending');
-    const decodedOutcome = currentDecoder?.rejected || isSurgeryRejectionTerminal() ? 'indeterminate'
-        : currentDecoder?.outcomeCheck == null ? 'pending' : currentDecoder.outcomeCheck ? 'agrees' : 'disagrees';
+    const decodedOutcome = getSurgeryTerminalFailure() ?? (currentDecoder?.rejected ? 'indeterminate'
+        : currentDecoder?.outcomeCheck == null ? 'pending' : currentDecoder.outcomeCheck ? 'agrees' : 'disagrees');
     row('outcome-check', xSector, decodedOutcome);
     const outcomeValue = document.getElementById('outcome-check-value');
     outcomeValue?.classList.toggle('state-ok', xSector && decodedOutcome === 'agrees');
@@ -3676,7 +3694,8 @@ function updateProtocolStateRows() {
 }
 
 function startSurgery(kind) {
-    if (stopForSurgeryRejection()) return;
+    if (isNoiseStopped()) return;
+    if (stopForSurgeryFailure()) return;
     if (!getCurrentDecoderConfig()?.surgery || !currentDecoder) return;
     if (!currentDecoder[kind === 'merge' ? 'canMerge' : 'canSplit']()) return;
     // Keep the previous checkpoint; the next forward step captures the
@@ -3705,8 +3724,8 @@ function updateStatusRow() {
     if (!statusValue || !currentDecoder) return;
     updatePlayButtons();
 
-    const rejectedRun = isSurgeryRejectionTerminal();
-    const quiescentRun = !rejectedRun && advanceRequested && isDecoderQuiescent(currentDecoder);
+    const terminalSurgeryFailure = isSurgeryFailureTerminal();
+    const quiescentRun = !terminalSurgeryFailure && advanceRequested && isDecoderQuiescent(currentDecoder);
     const check = quiescentRun || currentDecoder.logicalDataReady
         ? getRunLogicalCheck(currentDecoder) : { hasError: false };
     const data = logicalDataState(currentDecoder);
@@ -3722,10 +3741,11 @@ function updateStatusRow() {
     // under the three-pillar stylesheet's normally unwrapped status rule.
     statusValue.style.whiteSpace = logicalCheck?.unavailable ? 'normal' : '';
     statusValue.style.minWidth = logicalCheck?.unavailable ? '0' : '';
-    if (rejectedRun) {
+    let stateClass = '';
+    if (terminalSurgeryFailure) {
         currentDecoder.finishRunPresentation?.(animationStepIntervalMs());
         updateStatText(statusValue, 'failure');
-        statusValue.style.color = '#f87171';
+        stateClass = 'state-bad';
         statusValue.style.fontWeight = '600';
         statusValue.style.width = '';
         statusValue.style.justifySelf = '';
@@ -3738,7 +3758,7 @@ function updateStatusRow() {
         updateStatText(statusValue, logicalCheck.pending ? 'pending data'
             : logicalCheck.unavailable ? 'success (logical check unavailable)'
                 : hasLogicalError ? 'failure' : 'success');
-        statusValue.style.color = logicalCheck.pending ? '' : hasLogicalError ? '#f87171' : '#34d399';
+        stateClass = logicalCheck.pending ? '' : hasLogicalError ? 'state-bad' : 'state-ok';
         statusValue.style.fontWeight = logicalCheck.pending ? '' : '600';
         statusValue.style.width = '';
         statusValue.style.justifySelf = '';
@@ -3746,7 +3766,7 @@ function updateStatusRow() {
         // Both step caps report a failed timeout with the failure verdict's style.
         currentDecoder.finishRunPresentation?.(animationStepIntervalMs());
         updateStatText(statusValue, 'fail (timeout)');
-        statusValue.style.color = '#f87171';
+        stateClass = 'state-bad';
         statusValue.style.fontWeight = '600';
         // Size the longer verdict to its text; the row keeps it at the
         // shared right edge using the free space beside its own label.
@@ -3754,12 +3774,13 @@ function updateStatusRow() {
         statusValue.style.justifySelf = 'end';
     } else {
         updateStatText(statusValue, supportsNoiseStop() && !isManualStreamingRun() && !currentDecoder.isNoiseEnabled()
-            && !isDecoderQuiescent(currentDecoder) ? 'noise stopped' : isPlaying && playDirection === 'forward' ? 'running' : 'paused');
-        statusValue.style.color = '';
+            && !isDecoderQuiescent(currentDecoder) ? 'reading out' : isPlaying && playDirection === 'forward' ? 'running' : 'paused');
         statusValue.style.fontWeight = '';
         statusValue.style.width = '';
         statusValue.style.justifySelf = '';
     }
+    statusValue.classList.toggle('state-ok', stateClass === 'state-ok');
+    statusValue.classList.toggle('state-bad', stateClass === 'state-bad');
 }
 
 let lastAnimationTime = 0;
@@ -3824,7 +3845,7 @@ function animationStepIntervalMs() {
 // that isn't actually the terminating one.
 function animate(currentTime) {
     if (!isPlaying || !currentDecoder) return;
-    if (stopForSurgeryRejection()) return;
+    if (playDirection === 'forward' && stopForSurgeryFailure()) return;
 
     if (!lastAnimationTime) {
         // First frame of this Play session (or the very first ever): no

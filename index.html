@@ -67,7 +67,7 @@
                         <button id="step-btn" class="btn btn-secondary" aria-label="step forward" title="step forward">▶</button>
                         <button id="play-fwd-btn" class="btn btn-secondary" aria-label="forward play" title="forward play">▶▶</button>
                     </div>
-                    <button id="noise-btn" class="btn btn-secondary" style="display: none; grid-column: 1 / -1;" disabled>stop noise</button>
+                    <button id="noise-btn" class="btn btn-secondary" style="display: none; grid-column: 1 / -1;" disabled>readout</button>
                     <button id="merge-btn" class="btn btn-secondary" style="display: none;" disabled>merge</button>
                     <button id="split-btn" class="btn btn-secondary" style="display: none;" disabled>split</button>
                     <button id="toggle-3d-btn" class="btn btn-secondary" style="display: none;">Enable 3D</button>
@@ -254,12 +254,8 @@
                                 <span id="decoder-defects-count">0</span>
                             </div>
                             <div class="stat-row" id="seam-state-row" style="display: none;">
-                                <span>seam:</span>
+                                <span>geometry:</span>
                                 <span id="seam-state-value">split</span>
-                            </div>
-                            <div class="stat-row" id="seam-frame-row" style="display: none;">
-                                <span>seam frame:</span>
-                                <span id="seam-frame-value">not committed</span>
                             </div>
                             <div class="stat-row" id="surgery-outcome-row" style="display: none;">
                                 <span>surgery outcome:</span>
