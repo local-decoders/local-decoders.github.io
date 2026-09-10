@@ -200,7 +200,7 @@ export function drawSiteGlyph(ctx, x, y, side, colors, mask = 0) {
         ctx.restore();
     } else if (HTREE_INNER_SQUARE) {
         // Messages retain their full tile; resting sites can opt in to a core.
-        // Absorbing protocol sites retain their neutral colour override.
+        // Absorbing protocol sites retain their colour override.
         const innerSide = side * HTREE_INNER_SIDE_RATIO;
         ctx.fillStyle = colors.inner ?? colors.edge;
         ctx.fillRect(x - innerSide / 2, y - innerSide / 2, innerSide, innerSide);
@@ -210,7 +210,14 @@ export function drawSiteGlyph(ctx, x, y, side, colors, mask = 0) {
     ctx.roundRect(left, top, side, side, side * HTREE_CORNER_RADIUS_RATIO);
     ctx.strokeStyle = colors.edge;
     ctx.lineWidth = HTREE_GLYPH_EDGE_WIDTH;
-    ctx.stroke();
+    if (colors.dashRatios) {
+        ctx.save();
+        ctx.setLineDash(colors.dashRatios.map(ratio => side * ratio));
+        ctx.stroke();
+        ctx.restore();
+    } else {
+        ctx.stroke();
+    }
 }
 
 // The outer normal is expressed in local panel coordinates, so rotated

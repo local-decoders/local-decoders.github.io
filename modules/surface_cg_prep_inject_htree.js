@@ -1,28 +1,77 @@
 // The state-preparation and state-injection models use the ordinary H-tree
-// presentation and its movement/history clock. Only absorbing geometry and
+// presentation and its movement/history clock. Absorbing geometry and
 // the distinguished injection qubit add paint. See main.tex:3708-3740 and
 // 5548: the wall/region is implemented on each coarse lattice itself.
 import { SurfaceCGPrepDecoder, SurfaceCGInjectDecoder } from './surface_cg_prep_inject.js';
+import { syndromeOpen } from './surface_cg_streaming.js';
+import { drawOrb, DEFECT_ORB_RADIUS, DEFECT_ORB_OUTLINE } from './repetition2.js';
 import {
     SurfaceCGHTreeDecoder, HTREE_LEVEL_COLORS, HTREE_FUNNEL_COLORS, HTREE_PULSE_MAX_MS,
+    HTREE_BOUNDARY_INSET, HTREE_GLYPH_SIDE_RATIO,
     HTREE_STREET_OPACITY, HTREE_STREET_WIDTH,
     HTREE_FUNNEL_OPACITY, HTREE_FUNNEL_WIDTH,
+    ROUGH_BOUNDARY_COLOR, glyphColors,
 } from './surface_cg_htree.js';
 
 export * from './surface_cg_htree.js';
 export { PREP_WALL_M, INJECTION_DRIFT_PERIOD, INJECTION_CORNER,
     INJECTION_FRAME_OUTCOME_PROBABILITY } from './surface_cg_prep_inject.js';
 
-export const PROTOCOL_ABSORBING_EDGE = '#9197a1';
-export const PROTOCOL_ABSORBING_FILL = '#edf0f3';
+export const PROTOCOL_ABSORBING_EDGE = ROUGH_BOUNDARY_COLOR;
+export const PROTOCOL_ABSORBING_FILL = glyphColors(ROUGH_BOUNDARY_COLOR).fill;
+// Dash lengths scale with the square, including the shared legend swatch.
+export const PROTOCOL_ABSORBING_DASH_RATIO = 0.20;
+export const PROTOCOL_ABSORBING_GAP_RATIO = 0.15;
+export const PROTOCOL_ABSORBING_GLYPH_COLORS = Object.freeze({
+    fill: PROTOCOL_ABSORBING_FILL,
+    edge: PROTOCOL_ABSORBING_EDGE,
+    dashRatios: Object.freeze([PROTOCOL_ABSORBING_DASH_RATIO, PROTOCOL_ABSORBING_GAP_RATIO]),
+});
 export const PREPARATION_WALL_OPACITY = 0.10;
 export const INJECTION_FRAME_SHADE = '#b8c8da';
 export const INJECTION_FRAME_OPACITY = 0.16;
 // A small gap exposes each absorbing site's own coarse-lattice footprint.
 export const PREP_INJECT_REGION_CELL_RATIO = 0.94;
-export const INJECTION_QSTAR_COLOR = '#b7791f';
-export const INJECTION_QSTAR_RADIUS = 4;
-export const INJECTION_QSTAR_OUTLINE_WIDTH = 1;
+// Correction highlights already use teal; keep the injected qubit distinct.
+export const INJECTED_QUBIT_COLOR = 'rgb(70,70,70)';
+export const INJECTED_QUBIT_RADIUS_FACTOR = DEFECT_ORB_RADIUS;
+export const INJECTED_QUBIT_OUTLINE_COLOR = '#ffffff';
+export const INJECTED_QUBIT_OUTLINE_WIDTH = 1;
+export const FRAME_DEFECT_COLOR = 'rgb(224,138,30)';
+
+export function drawInjectedQubit(ctx, x, y, glyphSide) {
+    ctx.save();
+    ctx.fillStyle = INJECTED_QUBIT_COLOR;
+    ctx.strokeStyle = INJECTED_QUBIT_OUTLINE_COLOR;
+    ctx.lineWidth = INJECTED_QUBIT_OUTLINE_WIDTH;
+    ctx.beginPath();
+    ctx.arc(x, y, INJECTED_QUBIT_RADIUS_FACTOR * glyphSide, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+}
+
+export function drawFrameDefect(ctx, x, y, glyphSide) {
+    const radius = DEFECT_ORB_RADIUS * glyphSide;
+    ctx.save();
+    ctx.strokeStyle = FRAME_DEFECT_COLOR;
+    ctx.lineWidth = Math.max(1, DEFECT_ORB_OUTLINE * glyphSide);
+    ctx.beginPath();
+    ctx.rect(x - radius, y - radius, 2 * radius, 2 * radius);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function systemCheckGeometry(decoder, panel) {
+    const inset = HTREE_BOUNDARY_INSET;
+    const cellW = (panel.w - 2 * inset) / decoder.Lx;
+    const cellH = (panel.h - 2 * inset) / decoder.Ly;
+    return {
+        glyphSide: Math.min(cellW, cellH) * HTREE_GLYPH_SIDE_RATIO,
+        centerX: x => inset + (x + 0.5) * cellW,
+        centerY: y => panel.h - inset - (y + 0.5) * cellH,
+    };
+}
 
 const moveObservers = new WeakMap();
 
@@ -59,11 +108,23 @@ function protocolPresentation(Model, injection) {
         _layout(width, height, overlayRects) {
             let layout = SurfaceCGHTreeDecoder.prototype._layout.call(this, width, height, overlayRects);
             if (injection) {
-                const extent = INJECTION_QSTAR_RADIUS + INJECTION_QSTAR_OUTLINE_WIDTH / 2;
-                const leftShift = panel => Math.max(0, extent - panel.left - layout.lattice.left);
-                if (layout.panels.some(panel => panel.left + panel.w + leftShift(panel) > width)) {
-                    // If a full-width panel has no room for the marker,
-                    // obtain the same H-tree layout with the required gutter.
+                const leftShift = panel => {
+                    const { glyphSide } = systemCheckGeometry(this, panel);
+                    const extent = INJECTED_QUBIT_RADIUS_FACTOR * glyphSide
+                        + INJECTED_QUBIT_OUTLINE_WIDTH / 2;
+                    return Math.max(0, extent - panel.left - layout.lattice.left);
+                };
+                const [decoderPanel, systemPanel] = layout.panels;
+                const systemRadius = INJECTED_QUBIT_RADIUS_FACTOR
+                    * systemCheckGeometry(this, systemPanel).glyphSide;
+                const overlapsSystemMarker = decoderPanel.top === systemPanel.top
+                    && decoderPanel.left + decoderPanel.w + leftShift(decoderPanel)
+                        > systemPanel.left + HTREE_BOUNDARY_INSET + leftShift(systemPanel)
+                            - systemRadius - INJECTED_QUBIT_OUTLINE_WIDTH / 2;
+                if (overlapsSystemMarker
+                    || layout.panels.some(panel => panel.left + panel.w + leftShift(panel) > width)) {
+                    // Reserve a shared gutter if translating a panel would
+                    // clip a marker or consume the space around its neighbor.
                     const gutter = Math.max(...layout.panels.map(leftShift));
                     layout = SurfaceCGHTreeDecoder.prototype._layout.call(this,
                         width - gutter, height, overlayRects);
@@ -71,8 +132,8 @@ function protocolPresentation(Model, injection) {
                     layout.stackCenterX += gutter;
                 } else {
                     // Usually only the desktop decoder panel touches x=0.
-                    // Translate it by 2.5px: qstar stays on its true boundary,
-                    // while the full 4px diamond and 1px outline remain visible.
+                    // Translate it just enough to expose the complete circle
+                    // and outline while keeping its center on the boundary.
                     layout.panels = layout.panels.map(panel => ({ ...panel, left: panel.left + leftShift(panel) }));
                 }
             }
@@ -91,11 +152,15 @@ function protocolPresentation(Model, injection) {
                 })));
             // q_star is the left boundary qubit at the center of its check
             // row: top-left by default, bottom-left for the mirrored fixture.
-            layout.qStarPoints = injection ? layout.panels.map(panel => ({
-                x: panel.left + lattice.left,
-                y: panel.top + lattice.bottom - (this.qStar.y + 0.5) * cellH,
-                radius: INJECTION_QSTAR_RADIUS,
-            })) : [];
+            layout.qStarPoints = injection ? layout.panels.map(panel => {
+                const { glyphSide, centerY } = systemCheckGeometry(this, panel);
+                return {
+                    x: panel.left + HTREE_BOUNDARY_INSET,
+                    y: panel.top + centerY(this.qStar.y),
+                    radius: INJECTED_QUBIT_RADIUS_FACTOR * glyphSide,
+                    glyphSide,
+                };
+            }) : [];
             return layout;
         }
 
@@ -104,8 +169,28 @@ function protocolPresentation(Model, injection) {
         getProtocolRenderGeometry(width, height, overlayRects) {
             const layout = this._layout(width, height, overlayRects);
             const panel = layout.panels[0];
+            const system = layout.panels[1];
+            const { glyphSide, centerX, centerY } = systemCheckGeometry(this, system);
+            const frameFlipPoints = [];
+            const frameDefectPoints = [];
+            const psi = this.frameCommitted ? this.committedFrame : this.frame;
+            const initialSyndrome = syndromeOpen(this.initialBx, this.initialBy, this.Lx, this.Ly);
+            for (let x = 0; x < this.Lx; x++) for (let y = 0; y < this.Ly; y++) {
+                if (this.frameFlipMask[x][y]) frameFlipPoints.push({
+                    physicalX: x, physicalY: y,
+                    x: system.left + centerX(x), y: system.top + centerY(y),
+                    radius: DEFECT_ORB_RADIUS * glyphSide,
+                });
+                if (psi[x][y] !== initialSyndrome[x][y]) frameDefectPoints.push({
+                    physicalX: x, physicalY: y,
+                    x: system.left + centerX(x), y: system.top + centerY(y),
+                    radius: DEFECT_ORB_RADIUS * glyphSide,
+                });
+            }
             return {
                 panels: layout.panels,
+                frameFlipPoints,
+                frameDefectPoints,
                 absorbingSites: layout.absorbingSites.map(sites => sites.map(site => ({
                     ...site, x: panel.left + site.x, y: panel.top + site.y,
                     left: panel.left + site.left, top: panel.top + site.top,
@@ -116,7 +201,7 @@ function protocolPresentation(Model, injection) {
 
         _getProtocolGlyphColors(level, rx, ry) {
             return this.isAbsorbingSite(level, rx, ry)
-                ? { fill: PROTOCOL_ABSORBING_FILL, edge: PROTOCOL_ABSORBING_EDGE } : null;
+                ? PROTOCOL_ABSORBING_GLYPH_COLORS : null;
         }
 
         _drawProtocolRegions(ctx, layout) {
@@ -198,36 +283,46 @@ function protocolPresentation(Model, injection) {
         }
 
         _drawResidualPanel(ctx, panel, showSyndrome, showErrors, showGrid) {
-            const { residualX, residualY } = this.getSystemResidual();
-            // Reuse the shared glyphs, strings and boundaries with a read-only
-            // view of the frame-relative residual. Never temporarily replace
-            // the decoder's raw bits or correction channels during a render.
+            const { residualX, residualY, syndrome } = this.getRawSystemResidual();
+            // Draw b XOR E XOR b_0, including after a successful drain.
+            // initialBx/initialBy are recaptured at each attempt's first
+            // _drawPhi, including _restartFromCurrent; never cache an earlier
+            // attempt's reference. Keep the raw syndrome for defects below.
             const view = Object.create(this);
-            view.bx = residualX;
-            view.by = residualY;
+            view.bx = residualX.map((column, x) => column.map((bit, y) => bit !== this.initialBx[x][y]));
+            view.by = residualY.map((column, x) => column.map((bit, y) => bit !== this.initialBy[x][y]));
             view.expandCorrection = () => ({
                 Ex: residualX.map(column => column.map(() => false)),
                 Ey: residualY.map(column => column.map(() => false)),
             });
             SurfaceCGHTreeDecoder.prototype._drawResidualPanel.call(view,
-                ctx, panel, showSyndrome, showErrors, showGrid);
+                ctx, panel, false, showErrors, showGrid);
+            if (!showSyndrome) return;
+            // Defects mean syndrome != psi. Frame defects mark where that
+            // reference differs from the b_0-relative picture, including
+            // first-round measurement errors before any wall absorption.
+            const psi = this.frameCommitted ? this.committedFrame : this.frame;
+            const initialSyndrome = syndromeOpen(this.initialBx, this.initialBy, this.Lx, this.Ly);
+            const { glyphSide, centerX, centerY } = systemCheckGeometry(this, panel);
+            ctx.save();
+            ctx.translate(panel.left, panel.top);
+            for (let x = 0; x < this.Lx; x++) for (let y = 0; y < this.Ly; y++) {
+                const cx = centerX(x), cy = centerY(y);
+                if (syndrome[x][y] !== psi[x][y]) {
+                    drawOrb(ctx, cx, cy, glyphSide, DEFECT_ORB_RADIUS, DEFECT_ORB_OUTLINE);
+                }
+                if (psi[x][y] !== initialSyndrome[x][y]) drawFrameDefect(ctx, cx, cy, glyphSide);
+            }
+            ctx.restore();
         }
 
         render(ctx, width, height, options = {}) {
             SurfaceCGHTreeDecoder.prototype.render.call(this, ctx, width, height, options);
             if (!injection) return;
             const { qStarPoints } = this._layout(width, height, options.overlayRects);
-            ctx.save();
-            ctx.fillStyle = INJECTION_QSTAR_COLOR;
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = INJECTION_QSTAR_OUTLINE_WIDTH;
-            for (const { x, y, radius } of qStarPoints) {
-                ctx.beginPath();
-                ctx.moveTo(x, y - radius); ctx.lineTo(x + radius, y);
-                ctx.lineTo(x, y + radius); ctx.lineTo(x - radius, y); ctx.closePath();
-                ctx.fill(); ctx.stroke();
+            for (const { x, y, glyphSide } of qStarPoints) {
+                drawInjectedQubit(ctx, x, y, glyphSide);
             }
-            ctx.restore();
         }
     }
 

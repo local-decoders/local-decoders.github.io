@@ -15,7 +15,7 @@ const SURFACE_STREAM_FIELDS = ['L', 'Lx', 'Ly', 'q', 'growthWindow',
     'stepCount', 'lastPhi', '_lastPhi', 'lastPromotions', 'lastCondensations',
     'lastDidSplit', 'residualX', 'residualY', 'residualSyndrome', 'pending'];
 const PROTOCOL_FIELDS = [...SURFACE_STREAM_FIELDS, 'protocolSchedule', 'frame',
-    'committedFrame', 'frameCommitted', 'frameCommitStep', 'frameFlips',
+    'committedFrame', 'frameCommitted', 'frameCommitStep', 'frameFlips', 'frameFlipMask',
     'attempts', 'rejected', 'rejectionCount', 'lastRejectionStep', 'initialBx',
     'initialBy', 'initialTildeS', 'qStar', 'lastProtocolStages', 'lastAbsorptions',
     '_rejectionThisStep', '_restartFromCurrent'];

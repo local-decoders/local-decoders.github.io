@@ -405,8 +405,8 @@ function protocolDecoderConfig(kind) {
         name: `surface code state ${protocol} (phenomenological, constant-resource-density)`,
         title: `state ${protocol} with the constant-resource-density surface-code decoder`,
         description: injection
-            ? 'In the <i>X</i>-type stabilizer sector diagnostic, |+⟩ is injected at the upper-left <i>q</i><sub>⋆</sub>, with a rising absorbing frame region in the upper-right half. Absorptions flip <i>ψ</i>; splitting precedes upward drift and ordinary decoding. Deterministic-site expiry rejects and restarts. After the hover, <i>ψ</i> is committed. After readout and drain, frame consistency compares residual syndrome with <i>ψ</i> on frame checks and zero elsewhere; the <span class="nobreak">X̄ = +1</span> readout proxy checks left-column parity adjusted by pre-round errors. Both proxy the paper’s cluster-based definitions.'
-            : 'In the <i>X</i>-type stabilizer sector diagnostic, data qubits are prepared in <span class="nobreak">|+⟩<sup>⊗<i>n</i></sup></span>, so ideal first-round <i>X</i>-check outcomes are deterministic. The first measured syndrome initializes a frame <i>ψ</i> without producing defects. An absorbing wall rises through the coarse slices at <span class="nobreak"><i>T</i><sub><i>k</i></sub> = <i>M</i> ∑<sub><i>j</i>&lt;<i>k</i></sub> <i>t</i><sub><i>j</i></sub></span>; absorbed defects flip <i>ψ</i>. Temporary final-slice timers collect defects during the hover. The wall disappears, <i>ψ</i> is committed, and ordinary decoding resumes. After readout and drain, frame consistency compares residual syndrome with <i>ψ</i>; the <span class="nobreak">X̄ = +1</span> readout proxy checks left-column parity adjusted by pre-round errors. These are proxies for the paper’s cluster-based failure definitions.',
+            ? 'In the <i>X</i>-type stabilizer sector diagnostic, |+⟩ is injected at the upper-left boundary qubit, with a rising absorbing frame region in the upper-right half. Absorptions flip <i>ψ</i>; splitting precedes upward drift and ordinary decoding. Deterministic-site expiry rejects and restarts. After the hover, <i>ψ</i> is committed. Residual strings are drawn relative to the pre-round error configuration; orange square outlines mark checks whose committed frame differs from the pre-round syndrome. Pressing the readout button ends the noise and lets the decoder run until it terminates.'
+            : 'In the <i>X</i>-type stabilizer sector diagnostic, data qubits are prepared in <span class="nobreak">|+⟩<sup>⊗<i>n</i></sup></span>, so ideal first-round <i>X</i>-check outcomes are deterministic. The first measured syndrome initializes a frame <i>ψ</i> without producing defects. An absorbing wall rises through the coarse slices at <span class="nobreak"><i>T</i><sub><i>k</i></sub> = <i>M</i> ∑<sub><i>j</i>&lt;<i>k</i></sub> <i>t</i><sub><i>j</i></sub></span>; absorbed defects flip <i>ψ</i>. Temporary final-slice timers collect defects during the hover. The wall disappears, <i>ψ</i> is committed, and ordinary decoding resumes. Residual strings are drawn relative to the pre-round error configuration; orange square outlines mark checks whose committed frame differs from the pre-round syndrome. Pressing the readout button ends the noise and lets the decoder run until it terminates.',
         module: '../modules/surface_cg_prep_inject_htree.js',
         className: injection ? 'SurfaceCGInjectHTreeDecoder' : 'SurfaceCGPrepHTreeDecoder',
         narrowAspect: NARROW_HIERARCHICAL_CANVAS_ASPECT,
@@ -2560,12 +2560,11 @@ function updateLegend(decoderType, moduleColors) {
         if (item.lineWidth) colorBox.style.height = `${item.lineWidth}px`;
         if (item.dash) colorBox.style.background = `repeating-linear-gradient(to right, ${item.color} 0 ${item.dash[0]}px, transparent ${item.dash[0]}px ${item.dash[0] + item.dash[1]}px)`;
 
-        if (shape === 'diamond') colorBox.style.clipPath = 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)';
-
-        if (shape === 'htree-site' || shape === 'condensing-boundary') {
+        if (shape === 'htree-site' || shape === 'condensing-boundary'
+            || shape === 'frame-defect' || shape === 'injected-qubit') {
             // Reuse the canvas glyphs without changing the swatch's existing
             // box or label spacing. The boundary uses the session's style.
-            const width = shape === 'htree-site' ? 11 : 14;
+            const width = shape === 'condensing-boundary' ? 14 : 11;
             const height = 11;
             const pixelRatio = globalThis.devicePixelRatio || 1;
             const canvas = document.createElement('canvas');
@@ -2583,7 +2582,11 @@ function updateLegend(decoderType, moduleColors) {
             colorBox.style.border = 'none';
             const context = canvas.getContext('2d');
             context.scale(pixelRatio, pixelRatio);
-            if (shape === 'htree-site') {
+            if (shape === 'injected-qubit') {
+                moduleColors.drawInjectedQubit(context, width / 2, height / 2, 14);
+            } else if (shape === 'frame-defect') {
+                moduleColors.drawFrameDefect(context, width / 2, height / 2, 14);
+            } else if (shape === 'htree-site') {
                 // The shared glyph also honours HTREE_INNER_SQUARE for swatches.
                 moduleColors.drawSiteGlyph(context, width / 2, height / 2, width - 1,
                     item.glyphColors);
@@ -2945,10 +2948,12 @@ function getLegendItems(decoderType, moduleColors) {
             const swatchSize = 14;
             const wBlue = Math.max(2, Math.round(swatchSize / 9));
             const errLineWidth = Math.max(1, 1.05 * wBlue);
-            const protocolSector = decoderType === 'surface_cg_prep' || decoderType === 'surface_cg_inject';
             const htree = isHierarchicalPresentation(decoderType);
             const items = [
-                { color: c.COLOR_ORB_RIM, edgeColor: '#000000', label: protocolSector ? 'X-check defect' : 'defect', shape: 'orb' },
+                { color: c.COLOR_ORB_RIM, edgeColor: '#000000', label: 'defect', shape: 'orb' },
+                ...(decoderType === 'surface_cg_prep' || decoderType === 'surface_cg_inject' ? [
+                    { color: c.FRAME_DEFECT_COLOR, label: 'frame flip', shape: 'frame-defect' }
+                ] : []),
                 ...(isHierarchicalPresentation(decoderType) ? [
                     { color: c.HTREE_TRANSIT_COLOR, label: 'defect in transit', shape: 'comet', lineWidth: errLineWidth }
                 ] : []),
@@ -2961,11 +2966,12 @@ function getLegendItems(decoderType, moduleColors) {
             ];
             if (decoderType === 'surface_cg_prep' || decoderType === 'surface_cg_inject') {
                 items.push({ color: c.PROTOCOL_ABSORBING_FILL, edgeColor: c.PROTOCOL_ABSORBING_EDGE,
-                    label: 'absorbing site' });
+                    glyphColors: c.PROTOCOL_ABSORBING_GLYPH_COLORS,
+                    label: 'absorbing wall site', shape: 'htree-site' });
                 if (decoderType === 'surface_cg_inject') items.push(
                     { color: c.INJECTION_FRAME_SHADE, label: 'absorbing frame region' },
-                    { color: c.INJECTION_QSTAR_COLOR, edgeColor: c.INJECTION_QSTAR_COLOR,
-                        label: 'injection qubit q⋆', shape: 'diamond' });
+                    { color: c.INJECTED_QUBIT_COLOR, edgeColor: c.INJECTED_QUBIT_OUTLINE_COLOR,
+                        label: 'injected qubit', shape: 'injected-qubit' });
             }
             const levelColors = c.LEVEL_COLORS || [];
             const K = currentDecoder?.K ?? 3;
@@ -3173,6 +3179,9 @@ function logicalDataState(decoder) {
 }
 
 function getRunLogicalCheck(decoder) {
+    // Protocol tabs report termination; their diagnostic verdicts remain
+    // available in the decoder module for the benchmark harness.
+    if (decoder.protocolKind === 'prep' || decoder.protocolKind === 'inject') return { terminated: true };
     const check = decoder.checkLogicalError?.() ?? { hasError: false };
     if (!check.pending) return check;
     const state = logicalDataState(decoder);
@@ -3486,7 +3495,8 @@ function togglePlay(direction = 'forward') {
 // "running" during forward play; reverse uses the same status as manual
 // Back (including "paused" and "reading out"). Once
 // the user has actually asked to advance and quiescence was reached,
-// "success" -- or "failure" if checkLogicalError() reports a logical error
+// "terminated" for preparation/injection; otherwise "success" -- or
+// "failure" if checkLogicalError() reports a logical error
 // on the now-quiescent decoder, so a failed decode is never labelled a
 // success (TASK 4y; TASK 4bc delta briefly tried "logical error", reverted
 // in TASK 4bg). No step count is shown in any state. A freshly loaded or
@@ -3663,20 +3673,12 @@ function updateSurgeryControls() {
 function updateProtocolStateRows() {
     const available = typeof currentDecoder?.getProtocolState === 'function';
     const state = available ? currentDecoder.getProtocolState() : null;
-    const verdict = available ? currentDecoder.getProtocolVerdict() : null;
     const injection = currentDecoder?.protocolKind === 'inject';
     const rows = [
         ['protocol-wall', injection ? 'region' : 'wall', available, state?.wallPosition],
-        ['protocol-frame-flips', 'frame flips', available, state?.frameFlips],
-        ['protocol-frame-committed', 'frame committed', available,
-            state?.frameCommitted ? `yes, step ${state.frameCommitStep}` : 'no'],
         ['protocol-attempts', 'attempts', available && injection, state?.attempts],
         ['protocol-rejection', 'rejection', available && injection,
             state?.rejected ? `rejected (${state.rejectionCount}); ${state.frameCommitted ? 'retry committed' : 'retrying'}` : 'no'],
-        ['protocol-frame-consistency', 'frame consistency', available && !!verdict?.drained,
-            verdict?.frameConsistent ? 'consistent' : 'inconsistent'],
-        ['protocol-logical', 'X̄ proxy', available && !!verdict?.drained,
-            verdict?.logicalEven ? '+1 (even)' : '−1 (odd)'],
     ];
     for (const [key, label, visible, value] of rows) {
         // Avoid creating hidden protocol nodes on an ordinary page load.
@@ -3755,11 +3757,11 @@ function updateStatusRow() {
         // error"; reverted by user's choice).
         // Finish in-flight presentation on its own clock once stepping ends.
         currentDecoder.finishRunPresentation?.(animationStepIntervalMs());
-        updateStatText(statusValue, logicalCheck.pending ? 'pending data'
+        updateStatText(statusValue, logicalCheck.terminated ? 'terminated' : logicalCheck.pending ? 'pending data'
             : logicalCheck.unavailable ? 'success (logical check unavailable)'
                 : hasLogicalError ? 'failure' : 'success');
-        stateClass = logicalCheck.pending ? '' : hasLogicalError ? 'state-bad' : 'state-ok';
-        statusValue.style.fontWeight = logicalCheck.pending ? '' : '600';
+        stateClass = logicalCheck.terminated || logicalCheck.pending ? '' : hasLogicalError ? 'state-bad' : 'state-ok';
+        statusValue.style.fontWeight = logicalCheck.terminated || logicalCheck.pending ? '' : '600';
         statusValue.style.width = '';
         statusValue.style.justifySelf = '';
     } else if (hasReachedStepLimit()) {

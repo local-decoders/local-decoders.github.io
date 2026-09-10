@@ -101,6 +101,9 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
         this.frameCommitted = false;
         this.frameCommitStep = null;
         this.frameFlips = 0;
+        // Net absorption flips relative to this attempt's first-round frame.
+        // Initial random outcomes set the reference, not this display mask.
+        this.frameFlipMask = make2D(this.Lx, this.Ly, false);
         this.attempts = 1;
         this.rejected = false;
         this.rejectionCount = 0;
@@ -210,6 +213,7 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
             return;
         }
         this.frame[px][py] = !this.frame[px][py];
+        this.frameFlipMask[px][py] = !this.frameFlipMask[px][py];
         this.frameFlips++;
         this.lastAbsorptions.push({ level: k, x, y, physicalX: px, physicalY: py, step: this.t + 1 });
         const parentCoordinates = !from || k === this.K;
@@ -414,7 +418,7 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
         return super.getResidualDefectCount();
     }
 
-    // Keep the unmodified b XOR E representation available for diagnostics.
+    // Unmodified b XOR E for diagnostics; rendering separately subtracts b_0.
     getRawSystemResidual() {
         const { Ex, Ey } = this.expandCorrection();
         const residualX = this.bx.map((col, x) => col.map((bit, y) => bit !== Ex[x][y]));
@@ -473,8 +477,7 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
         const step = this.protocolStep;
         let activeSlice = 0;
         for (let k = 1; k < this.K; k++) if (step >= this.protocolSchedule[k]) activeSlice = k;
-        const wallPosition = step >= this.protocolEnd ? `removed at step ${this.protocolEnd}`
-            : activeSlice === this.K - 1 ? 'hovering' : `wall above slice ${activeSlice}`;
+        const wallPosition = step >= this.protocolEnd ? 'removed' : `above slice ${activeSlice}`;
         return { kind: this.protocolKind, step, end: this.protocolEnd, wallPosition,
             frameCommitted: this.frameCommitted, frameCommitStep: this.frameCommitStep,
             frameFlips: this.frameFlips, flips: this.frameFlips, committed: this.frameCommitted,
