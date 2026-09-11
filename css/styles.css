@@ -975,6 +975,22 @@ body.layout-three-pillars .description-band #decoder-description {
     text-align: left;
 }
 
+/* Match the italic X macron without changing inline metrics. */
+#decoder-description .overbar {
+    position: relative;
+}
+
+#decoder-description .overbar::before {
+    content: "";
+    position: absolute;
+    left: 0.1em;
+    right: 0.1em;
+    top: 1px;
+    border-top: 1px solid currentColor;
+    transform: translateY(-0.25px) scaleY(0.75);
+    transform-origin: top;
+}
+
 body.layout-three-pillars.description-below .right-pillar {
     height: fit-content;
     min-height: 0;
