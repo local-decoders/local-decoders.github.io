@@ -40,8 +40,8 @@
 // automaton state. Injection uses the existing open split convention that
 // does not retain the departed defect's own center message. Both protocols
 // freeze psi at output T_K-1: the final update cannot change it. Injection
-// rejection resets slices/frame and starts from the present physical bits,
-// without rewinding RNG, configured noise, or the global step count.
+// rejection is terminal: the rejecting update completes once; after rejection,
+// no further absorption, frame commit, or model step occurs until reset.
 //
 // Verdicts are explicitly diagnostic proxies, not the paper's cluster-based
 // failure definitions: residual syndrome must equal committed psi (zero
@@ -101,13 +101,11 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
         this.frameCommitted = false;
         this.frameCommitStep = null;
         this.frameFlips = 0;
-        // Net absorption flips relative to this attempt's first-round frame.
+        // Net absorption flips relative to the first-round frame.
         // Initial random outcomes set the reference, not this display mask.
         this.frameFlipMask = make2D(this.Lx, this.Ly, false);
-        this.attempts = 1;
         this.rejected = false;
-        this.rejectionCount = 0;
-        this.lastRejectionStep = null;
+        this.rejectionStep = null;
         this.initialBx = make2D(this.Lx + 1, this.Ly, false);
         this.initialBy = make2D(this.Lx, this.Ly, false);
         this.initialTildeS = make2D(this.Lx, this.Ly, false);
@@ -116,7 +114,6 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
         this.lastProtocolStages = [];
         this.lastAbsorptions = [];
         this._rejectionThisStep = false;
-        this._restartFromCurrent = false;
         this._protocolIntake = null;
     }
 
@@ -150,7 +147,7 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
 
     _drawPhi() {
         if (this.t !== -1) return super._drawPhi();
-        if (this.protocolKind === 'inject' && !this._restartFromCurrent && !this._testPhiQueue?.length) {
+        if (this.protocolKind === 'inject' && !this._testPhiQueue?.length) {
             // Projection makes the first A_fr outcomes unbiased even without
             // noise. Represent that syndrome by qx strings ending at the right
             // rough boundary: only Q_Z edges can be nonzero, and qx[0] (the
@@ -166,16 +163,7 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
                 }
             }
         }
-        let phi;
-        if (this._restartFromCurrent && !this._testPhiQueue?.length) {
-            // A retry's current physical bits already contain its pre-round b_0.
-            const pPhys = this.pPhys;
-            this.pPhys = 0;
-            try { phi = super._drawPhi(); } finally { this.pPhys = pPhys; }
-        } else {
-            phi = super._drawPhi();
-        }
-        this._restartFromCurrent = false;
+        const phi = super._drawPhi();
         // A test phi[0] is interpreted as an explicitly supplied tilde_s0.
         this.initialTildeS = copy2D(phi);
         this.initialBx = copy2D(this.bx);
@@ -206,6 +194,7 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
     }
 
     _absorbAt(k, x, y, onMove = null, from = null) {
+        if (this.rejected) return;
         const mappedK = Math.min(k, this.K - 1);
         const [px, py] = this.coarseSitePhysical(mappedK, x, y);
         if (!this.isFrameSite(mappedK, x, y)) {
@@ -321,6 +310,7 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
     }
 
     step(onMove = null) {
+        if (this.rejected) return;
         if (this.t >= this.protocolEnd) {
             this.lastProtocolStages = ['ordinary'];
             this.lastAbsorptions = [];
@@ -328,7 +318,6 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
         }
         this.lastProtocolStages = [];
         this.lastAbsorptions = [];
-        this._rejectionThisStep = false;
         for (let k = 0; k < this.K; k++) this._clearAbsorbing(this.slices[k], k, this.t, onMove);
         if (this.t >= this.protocolEnd - 1) this._disableFinalTimers();
         const didSplit = this.t >= (this.protocolKind === 'inject' ? 0 : 1) && this.t % this.qs === 0;
@@ -345,7 +334,8 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
         this.lastProtocolStages.push('ordinary');
         this._ordinaryUpdate(onMove, didSplit, condensations);
         if (this._rejectionThisStep) {
-            this._restartAttempt();
+            this.rejected = true;
+            this.rejectionStep = this.stepCount;
         } else if (!this.frameCommitted && this.t >= this.protocolEnd - 1) {
             this.committedFrame = copy2D(this.frame);
             this.frameCommitted = true;
@@ -389,22 +379,6 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
         this.lastCondensations = condensations;
         this.lastPromotions = promotedIn;
         this._protocolIntake = null;
-    }
-
-    _restartAttempt() {
-        const bx = copy2D(this.bx), by = copy2D(this.by);
-        const stepCount = this.stepCount, enabled = this._noiseEnabled;
-        const attempts = this.attempts + 1, rejections = this.rejectionCount + 1;
-        this.reset();
-        this.bx = bx;
-        this.by = by;
-        this.stepCount = stepCount;
-        this._noiseEnabled = enabled;
-        this.attempts = attempts;
-        this.rejectionCount = rejections;
-        this.rejected = true;
-        this.lastRejectionStep = stepCount;
-        this._restartFromCurrent = true;
     }
 
     // Quiescence drains automaton traffic; the verdict then distinguishes
@@ -481,8 +455,7 @@ export class SurfaceCGPrepDecoder extends SurfaceCGStreamingDecoder {
         return { kind: this.protocolKind, step, end: this.protocolEnd, wallPosition,
             frameCommitted: this.frameCommitted, frameCommitStep: this.frameCommitStep,
             frameFlips: this.frameFlips, flips: this.frameFlips, committed: this.frameCommitted,
-            commitStep: this.frameCommitStep, attempts: this.attempts, rejected: this.rejected,
-            rejectionCount: this.rejectionCount };
+            commitStep: this.frameCommitStep, rejected: this.rejected, rejectionStep: this.rejectionStep };
     }
 
     getProtocolVerdict() {

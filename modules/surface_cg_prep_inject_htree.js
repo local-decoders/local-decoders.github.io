@@ -27,15 +27,16 @@ export const PROTOCOL_ABSORBING_GLYPH_COLORS = Object.freeze({
     edge: PROTOCOL_ABSORBING_EDGE,
     dashRatios: Object.freeze([PROTOCOL_ABSORBING_DASH_RATIO, PROTOCOL_ABSORBING_GAP_RATIO]),
 });
-export const PREPARATION_WALL_OPACITY = 0.10;
-export const INJECTION_FRAME_SHADE = '#b8c8da';
-export const INJECTION_FRAME_OPACITY = 0.16;
+export const PROTOCOL_ABSORBING_WASH_OPACITY = 0.10;
 // A small gap exposes each absorbing site's own coarse-lattice footprint.
 export const PREP_INJECT_REGION_CELL_RATIO = 0.94;
-// Correction highlights already use teal; keep the injected qubit distinct.
-export const INJECTED_QUBIT_COLOR = 'rgb(70,70,70)';
-export const INJECTED_QUBIT_RADIUS_FACTOR = DEFECT_ORB_RADIUS;
-export const INJECTED_QUBIT_OUTLINE_COLOR = '#ffffff';
+// Orange is reserved for frame flips; use golden yellow for the injected qubit.
+export const INJECTED_QUBIT_COLOR = '#f5c518';
+// Diameter equals glyphSide: radius = 0.21 cell, while the nearest check
+// square starts 0.29 cell from the boundary centre (inset cancels), leaving
+// 0.08 cell before outlines.
+export const INJECTED_QUBIT_RADIUS_FACTOR = 0.5;
+export const INJECTED_QUBIT_OUTLINE_COLOR = 'rgb(70,70,70)';
 export const INJECTED_QUBIT_OUTLINE_WIDTH = 1;
 export const FRAME_DEFECT_COLOR = 'rgb(224,138,30)';
 
@@ -84,15 +85,11 @@ function protocolPresentation(Model, injection) {
 
         step(intervalOrObserver = HTREE_PULSE_MAX_MS) {
             const observer = typeof intervalOrObserver === 'function' ? intervalOrObserver : null;
-            const attempts = this.attempts;
+            if (this.rejected) return;
             if (observer) moveObservers.set(this, observer);
             try {
-                const result = SurfaceCGHTreeDecoder.prototype.step.call(this,
+                return SurfaceCGHTreeDecoder.prototype.step.call(this,
                     observer ? HTREE_PULSE_MAX_MS : intervalOrObserver);
-                // A rejected attempt resets the model during its update.
-                // Its outgoing flights must not repaint the fresh slices.
-                if (this.attempts !== attempts) this.restoreStepPresentation(null);
-                return result;
             } finally {
                 moveObservers.delete(this);
             }
@@ -126,9 +123,18 @@ function protocolPresentation(Model, injection) {
                     // Reserve a shared gutter if translating a panel would
                     // clip a marker or consume the space around its neighbor.
                     const gutter = Math.max(...layout.panels.map(leftShift));
+                    // A shared translation alone cannot enlarge the inter-panel gap.
+                    // Reserve the system marker's excess extent before recomputing.
+                    const extraGap = decoderPanel.top === systemPanel.top
+                        ? Math.max(0, systemRadius + INJECTED_QUBIT_OUTLINE_WIDTH / 2
+                            - HTREE_BOUNDARY_INSET
+                            - (systemPanel.left - decoderPanel.left - decoderPanel.w)) : 0;
                     layout = SurfaceCGHTreeDecoder.prototype._layout.call(this,
-                        width - gutter, height, overlayRects);
-                    layout.panels = layout.panels.map(panel => ({ ...panel, left: panel.left + gutter }));
+                        width - gutter - extraGap, height, overlayRects);
+                    const sideBySide = layout.panels[0].top === layout.panels[1].top;
+                    layout.panels = layout.panels.map((panel, index) => ({ ...panel,
+                        left: Math.min(width - panel.w,
+                            panel.left + gutter + (sideBySide && index === 1 ? extraGap : 0)) }));
                     layout.stackCenterX += gutter;
                 } else {
                     // Usually only the desktop decoder panel touches x=0.
@@ -208,8 +214,8 @@ function protocolPresentation(Model, injection) {
             if (!layout.absorbingSites.some(sites => sites.length)) return;
             ctx.save();
             ctx.beginPath(); ctx.rect(0, 0, layout.panels[0].w, layout.panels[0].h); ctx.clip();
-            ctx.fillStyle = injection ? INJECTION_FRAME_SHADE : PROTOCOL_ABSORBING_EDGE;
-            ctx.globalAlpha = injection ? INJECTION_FRAME_OPACITY : PREPARATION_WALL_OPACITY;
+            ctx.fillStyle = PROTOCOL_ABSORBING_EDGE;
+            ctx.globalAlpha = PROTOCOL_ABSORBING_WASH_OPACITY;
             for (const sites of layout.absorbingSites) {
                 for (const site of sites) ctx.fillRect(site.left, site.top, site.w, site.h);
             }
@@ -285,9 +291,8 @@ function protocolPresentation(Model, injection) {
         _drawResidualPanel(ctx, panel, showSyndrome, showErrors, showGrid) {
             const { residualX, residualY, syndrome } = this.getRawSystemResidual();
             // Draw b XOR E XOR b_0, including after a successful drain.
-            // initialBx/initialBy are recaptured at each attempt's first
-            // _drawPhi, including _restartFromCurrent; never cache an earlier
-            // attempt's reference. Keep the raw syndrome for defects below.
+            // initialBx/initialBy retain the only first-round reference,
+            // including after rejection. Keep the raw syndrome for defects below.
             const view = Object.create(this);
             view.bx = residualX.map((column, x) => column.map((bit, y) => bit !== this.initialBx[x][y]));
             view.by = residualY.map((column, x) => column.map((bit, y) => bit !== this.initialBy[x][y]));

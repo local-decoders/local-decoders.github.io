@@ -16,9 +16,9 @@ const SURFACE_STREAM_FIELDS = ['L', 'Lx', 'Ly', 'q', 'growthWindow',
     'lastDidSplit', 'residualX', 'residualY', 'residualSyndrome', 'pending'];
 const PROTOCOL_FIELDS = [...SURFACE_STREAM_FIELDS, 'protocolSchedule', 'frame',
     'committedFrame', 'frameCommitted', 'frameCommitStep', 'frameFlips', 'frameFlipMask',
-    'attempts', 'rejected', 'rejectionCount', 'lastRejectionStep', 'initialBx',
+    'rejected', 'rejectionStep', 'initialBx',
     'initialBy', 'initialTildeS', 'qStar', 'lastProtocolStages', 'lastAbsorptions',
-    '_rejectionThisStep', '_restartFromCurrent'];
+    '_rejectionThisStep'];
 const SURGERY_FIELDS = [...SURFACE_STREAM_FIELDS, 'sector', '_initiallyMerged',
     'surgery', '_stableSeamState', 'lastSurgeryStep', 'geometrySwitchLog',
     '_sliceGeometry', 'seamFrameCommitted', 'surgeryOutcome', 'outcomeCheck',

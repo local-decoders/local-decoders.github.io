@@ -739,6 +739,17 @@ input.slider-value:focus {
     min-width: 0;
 }
 
+#protocol-wall-row,
+#protocol-injection-row {
+    flex-wrap: wrap;
+}
+
+#protocol-wall-value,
+#protocol-injection-value {
+    white-space: nowrap;
+    margin-left: auto;
+}
+
 .stat-row .state-ok:last-child {
     color: var(--state-ok-color);
 }

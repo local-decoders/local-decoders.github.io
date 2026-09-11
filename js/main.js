@@ -75,8 +75,8 @@ export const NARROW_CODE_CAPACITY_CANVAS_ASPECT = 1.1;
 export const NARROW_HIERARCHICAL_CANVAS_ASPECT = 2.25;
 export const SURGERY_DEFAULT_SLICES = 3;
 export const SURGERY_Z_DEFAULT_SLICES = 3;
-// The UI ends failed outcomes; decoder retries remain available to benchmarks.
-export const SURGERY_TERMINAL_FAILURES = ['indeterminate', 'disagrees'];
+// Failed surgery outcomes and injection rejection end the UI run.
+export const PROTOCOL_TERMINAL_FAILURES = ['indeterminate', 'disagrees', 'rejected'];
 export const SURFACE_CG_PROTOCOL_DEFAULT_SLICES = 3;
 export const SURGERY_MIN_SIZE = 3;
 export const SURGERY_X_NARROW_CANVAS_ASPECT = 1.3;
@@ -149,7 +149,7 @@ export const STEP_HISTORY_MAX = 500;
 const stepHistory = [];
 const redoHistory = [];
 // Latch the failure reason for the displayed step, and rewind it with history.
-const terminalSurgeryFailures = new WeakMap();
+const terminalProtocolFailures = new WeakMap();
 
 // A completed decode waits this long for logical data before reporting
 // that the check is unavailable. A later response still updates the verdict.
@@ -400,13 +400,13 @@ function surgeryDecoderConfig(sector) {
 // Preparation and injection keep the hierarchical tab's physical controls.
 function protocolDecoderConfig(kind) {
     const injection = kind === 'inject';
-    const protocol = injection ? 'injection' : 'preparation';
+    const protocol = injection ? 'state injection' : 'stabilizer state preparation';
     return {
-        name: `surface code state ${protocol} (phenomenological, constant-resource-density)`,
-        title: `state ${protocol} with the constant-resource-density surface-code decoder`,
+        name: `surface code ${protocol} (phenomenological, constant-resource-density)`,
+        title: `${protocol} with the constant-resource-density surface-code decoder`,
         description: injection
-            ? 'In the <i>X</i>-type stabilizer sector diagnostic, |+⟩ is injected at the upper-left boundary qubit, with a rising absorbing frame region in the upper-right half. Absorptions flip <i>ψ</i>; splitting precedes upward drift and ordinary decoding. Deterministic-site expiry rejects and restarts. After the hover, <i>ψ</i> is committed. Residual strings are drawn relative to the pre-round error configuration; orange square outlines mark checks whose committed frame differs from the pre-round syndrome. Pressing the readout button ends the noise and lets the decoder run until it terminates.'
-            : 'In the <i>X</i>-type stabilizer sector diagnostic, data qubits are prepared in <span class="nobreak">|+⟩<sup>⊗<i>n</i></sup></span>, so ideal first-round <i>X</i>-check outcomes are deterministic. The first measured syndrome initializes a frame <i>ψ</i> without producing defects. An absorbing wall rises through the coarse slices at <span class="nobreak"><i>T</i><sub><i>k</i></sub> = <i>M</i> ∑<sub><i>j</i>&lt;<i>k</i></sub> <i>t</i><sub><i>j</i></sub></span>; absorbed defects flip <i>ψ</i>. Temporary final-slice timers collect defects during the hover. The wall disappears, <i>ψ</i> is committed, and ordinary decoding resumes. Residual strings are drawn relative to the pre-round error configuration; orange square outlines mark checks whose committed frame differs from the pre-round syndrome. Pressing the readout button ends the noise and lets the decoder run until it terminates.',
+            ? 'The state injection protocol is an analog of the stabilizer-state preparation protocol, adapted to the decoder geometry set by the form of the initial state used for injection. The geometry of the protocol is such that, unlike in state preparation, the decoder can fail to converge (in an appropriately defined sense) to a consistent interpretation of the initial stabilizer configuration; such failures are heralded, and when they occur, the injection attempt is discarded and can be reattempted. Below threshold, such rejections are extremely rare.'
+            : 'To prepare the logical stabilizer state |0̄⟩, we initialize the physical qubits in <span class="nobreak">|0⟩<sup>⊗<i>n</i></sup></span> and measure all of the surface code\'s stabilizers. The <i>Z</i>-type stabilizer measurement outcomes are deterministic in the absence of noise and can be decoded with the constant-resource-density surface-code decoder for phenomenological noise. The <i>X</i>-type stabilizer measurement outcomes, however, are intrinsically random, and the decoder must locally determine a consistent initial <i>X</i>-type stabilizer frame before the logical qubit can be used. The first set of measured syndrome outcomes is used to initialize an interpretation <i>ψ</i> of the initial stabilizer configuration, without producing defects. An “absorbing wall” then rises through the slices; a defect absorbed by the wall flips the interpretation of the initial stabilizer measurement at that site instead of being corrected. When the wall disappears, <i>ψ</i> is committed as the initial stabilizer configuration and ordinary decoding resumes. Orange square outlines mark stabilizers whose committed initial value differs from their true initial value; in a real experiment there would be no way of knowing the true initial value, since both interpretations are consistent with the record of syndrome measurement outcomes. Pressing the readout button ends the noise and lets the decoder run until it terminates; no success or failure verdict is defined for this protocol, since the logical <i>X̄</i> operator anticommutes with the initial product-state stabilizers and thus has no definite value to check against.',
         module: '../modules/surface_cg_prep_inject_htree.js',
         className: injection ? 'SurfaceCGInjectHTreeDecoder' : 'SurfaceCGPrepHTreeDecoder',
         narrowAspect: NARROW_HIERARCHICAL_CANVAS_ASPECT,
@@ -2583,7 +2583,10 @@ function updateLegend(decoderType, moduleColors) {
             const context = canvas.getContext('2d');
             context.scale(pixelRatio, pixelRatio);
             if (shape === 'injected-qubit') {
-                moduleColors.drawInjectedQubit(context, width / 2, height / 2, 14);
+                // Cap the radius so the 1 px rim fits inside the 11 px swatch.
+                const radius = Math.min(moduleColors.INJECTED_QUBIT_RADIUS_FACTOR * 14, 4.5);
+                moduleColors.drawInjectedQubit(context, width / 2, height / 2,
+                    radius / moduleColors.INJECTED_QUBIT_RADIUS_FACTOR);
             } else if (shape === 'frame-defect') {
                 moduleColors.drawFrameDefect(context, width / 2, height / 2, 14);
             } else if (shape === 'htree-site') {
@@ -2969,7 +2972,6 @@ function getLegendItems(decoderType, moduleColors) {
                     glyphColors: c.PROTOCOL_ABSORBING_GLYPH_COLORS,
                     label: 'absorbing wall site', shape: 'htree-site' });
                 if (decoderType === 'surface_cg_inject') items.push(
-                    { color: c.INJECTION_FRAME_SHADE, label: 'absorbing frame region' },
                     { color: c.INJECTED_QUBIT_COLOR, edgeColor: c.INJECTED_QUBIT_OUTLINE_COLOR,
                         label: 'injected qubit', shape: 'injected-qubit' });
             }
@@ -3217,7 +3219,7 @@ function captureStepState() {
         decoder: captureDecoderState(currentDecoder),
         advanceRequested,
         noiseStoppedAtStep,
-        terminalSurgeryFailure: terminalSurgeryFailures.get(currentDecoder) ?? null,
+        terminalProtocolFailure: terminalProtocolFailures.get(currentDecoder) ?? null,
     };
 }
 
@@ -3241,10 +3243,10 @@ function restoreStepState(snapshot, fromPlayback = false, replay = false) {
     } : undefined);
     advanceRequested = snapshot.advanceRequested;
     noiseStoppedAtStep = snapshot.noiseStoppedAtStep;
-    if (snapshot.terminalSurgeryFailure) {
-        terminalSurgeryFailures.set(currentDecoder, snapshot.terminalSurgeryFailure);
+    if (snapshot.terminalProtocolFailure) {
+        terminalProtocolFailures.set(currentDecoder, snapshot.terminalProtocolFailure);
     } else {
-        terminalSurgeryFailures.delete(currentDecoder);
+        terminalProtocolFailures.delete(currentDecoder);
     }
     // These sliders edit the rule immediately, so they must reflect the
     // restored rule too. Deferred Initialize inputs keep their pending values.
@@ -3317,7 +3319,7 @@ function stepOnce() {
         return false;
     }
 
-    if (stopForSurgeryFailure()) return false;
+    if (stopForProtocolFailure()) return false;
     finishInitialErrorsPointerGesture();
     // An already displayed verdict is today's STEP no-op. The first
     // request on a quiescent step-zero state still reveals its verdict,
@@ -3370,7 +3372,7 @@ function stepOnce() {
     } else {
         currentDecoder.step();
     }
-    if (stopForSurgeryFailure()) return false;
+    if (stopForProtocolFailure()) return false;
     if (isRunOver()) {
         if (isPlaying) stopPlayback();
         updateStats();
@@ -3383,12 +3385,12 @@ function stepOnce() {
 // Both forward controls replay saved states before computing a fresh tick.
 // Timer ticks leave rendering and the scheduler clock to animate().
 function stepForwardOnce(fromPlayback = false) {
-    if (!currentDecoder || stopForSurgeryFailure()) return false;
+    if (!currentDecoder || stopForProtocolFailure()) return false;
     finishInitialErrorsPointerGesture();
     if (redoHistory.length > 0) {
         pushStepHistory(captureStepState());
         restoreStepState(redoHistory.pop(), fromPlayback, true);
-        if (stopForSurgeryFailure()) return false;
+        if (stopForProtocolFailure()) return false;
         if (isPlaying && isRunOver()) stopPlayback();
         return !isRunOver();
     }
@@ -3398,7 +3400,7 @@ function stepForwardOnce(fromPlayback = false) {
 }
 
 function stepSimulation() {
-    if (stopForSurgeryFailure()) return;
+    if (stopForProtocolFailure()) return;
     if (!currentDecoder || (redoHistory.length === 0 && isRunOver())) return;
     if (isPlaying && playDirection === 'backward') stopPlayback();
     stepForwardOnce();
@@ -3406,7 +3408,7 @@ function stepSimulation() {
 }
 
 function shouldRestartStoppedNoiseRun() {
-    return !isSurgeryFailureTerminal() && supportsNoiseStop() && !currentDecoder.isNoiseEnabled()
+    return !isProtocolFailureTerminal() && supportsNoiseStop() && !currentDecoder.isNoiseEnabled()
         && ((advanceRequested && isDecoderQuiescent(currentDecoder)) || hasReachedStepLimit());
 }
 
@@ -3443,13 +3445,13 @@ function togglePlayback() {
 }
 
 function playForward() {
-    if (stopForSurgeryFailure()) return;
+    if (stopForProtocolFailure()) return;
     if (isPlaying && playDirection === 'forward') return;
     return togglePlay();
 }
 
 function togglePlay(direction = 'forward') {
-    if (!currentDecoder || (direction === 'forward' && stopForSurgeryFailure())) return;
+    if (!currentDecoder || (direction === 'forward' && stopForProtocolFailure())) return;
     // Guard before stopping the other direction or writing any DOM state.
     if (direction === 'backward' && stepHistory.length === 0) return;
     if (isPlaying && playDirection === direction) {
@@ -3540,24 +3542,26 @@ function isManualStreamingRun() {
     return currentDecoderType === 'repetition_streaming' && !!currentDecoder?.manualMode;
 }
 
-function getSurgeryTerminalFailure() {
-    if (!getCurrentDecoderConfig()?.surgery || !currentDecoder) return null;
-    const outcome = terminalSurgeryFailures.get(currentDecoder)
-        ?? (currentDecoder.rejected ? 'indeterminate'
-            : currentDecoder.sector === 'x' && currentDecoder.outcomeCheck === false ? 'disagrees' : null);
-    return SURGERY_TERMINAL_FAILURES.includes(outcome) ? outcome : null;
+function getProtocolTerminalFailure() {
+    if (!currentDecoder) return null;
+    const config = getCurrentDecoderConfig();
+    const outcome = terminalProtocolFailures.get(currentDecoder)
+        ?? (currentDecoderType === 'surface_cg_inject' && currentDecoder.rejected ? 'rejected'
+            : config?.surgery ? (currentDecoder.rejected ? 'indeterminate'
+                : currentDecoder.sector === 'x' && currentDecoder.outcomeCheck === false ? 'disagrees' : null) : null);
+    return PROTOCOL_TERMINAL_FAILURES.includes(outcome) ? outcome : null;
 }
 
-function isSurgeryFailureTerminal() {
-    return getSurgeryTerminalFailure() !== null;
+function isProtocolFailureTerminal() {
+    return getProtocolTerminalFailure() !== null;
 }
 
-function stopForSurgeryFailure() {
-    const failure = getSurgeryTerminalFailure();
+function stopForProtocolFailure() {
+    const failure = getProtocolTerminalFailure();
     if (!failure) return false;
-    const newlyFailed = !terminalSurgeryFailures.has(currentDecoder);
+    const newlyFailed = !terminalProtocolFailures.has(currentDecoder);
     if (newlyFailed) {
-        terminalSurgeryFailures.set(currentDecoder, failure);
+        terminalProtocolFailures.set(currentDecoder, failure);
         if (currentDecoder.isNoiseEnabled?.()) {
             currentDecoder.setNoiseEnabled(false);
             noiseStoppedAtStep = currentDecoder.stepCount || 0;
@@ -3576,7 +3580,7 @@ function stopForSurgeryFailure() {
 // Stop physical decoding at quiescence even while the logical verdict is
 // pending. watchLogicalData resolves that verdict without another step.
 function isRunOver() {
-    return !!currentDecoder && (isSurgeryFailureTerminal() || (advanceRequested && isDecoderQuiescent(currentDecoder))
+    return !!currentDecoder && (isProtocolFailureTerminal() || (advanceRequested && isDecoderQuiescent(currentDecoder))
         || hasReachedStepLimit());
 }
 
@@ -3627,7 +3631,7 @@ function updateNoiseButton() {
     if (!noiseBtn) return;
     const available = supportsNoiseStop();
     const display = available ? '' : 'none';
-    const disabled = !available || !currentDecoder.isNoiseEnabled();
+    const disabled = !available || !currentDecoder.isNoiseEnabled() || isProtocolFailureTerminal();
     if (noiseBtn.style.display !== display) noiseBtn.style.display = display;
     if (noiseBtn.disabled !== disabled) noiseBtn.disabled = disabled;
     if (noiseBtn.textContent !== 'readout') noiseBtn.textContent = 'readout';
@@ -3639,7 +3643,7 @@ function updateSurgeryControls() {
         const button = document.getElementById(`${kind}-btn`);
         if (!button) continue;
         button.style.display = available ? '' : 'none';
-        button.disabled = !available || isNoiseStopped() || isSurgeryFailureTerminal()
+        button.disabled = !available || isNoiseStopped() || isProtocolFailureTerminal()
             || !currentDecoder[kind === 'merge' ? 'canMerge' : 'canSplit']?.();
     }
     const xSector = available && currentDecoder.sector === 'x';
@@ -3653,7 +3657,7 @@ function updateSurgeryControls() {
     row('seam-state', available, introducing
         ? `${state} (${currentDecoder.switchedSliceCount} of ${currentDecoder.K} slices switched)` : state);
     row('surgery-outcome', xSector, currentDecoder?.surgeryOutcome ?? 'pending');
-    const decodedOutcome = getSurgeryTerminalFailure() ?? (currentDecoder?.rejected ? 'indeterminate'
+    const decodedOutcome = getProtocolTerminalFailure() ?? (currentDecoder?.rejected ? 'indeterminate'
         : currentDecoder?.outcomeCheck == null ? 'pending' : currentDecoder.outcomeCheck ? 'agrees' : 'disagrees');
     row('outcome-check', xSector, decodedOutcome);
     const outcomeValue = document.getElementById('outcome-check-value');
@@ -3675,29 +3679,29 @@ function updateProtocolStateRows() {
     const state = available ? currentDecoder.getProtocolState() : null;
     const injection = currentDecoder?.protocolKind === 'inject';
     const rows = [
-        ['protocol-wall', injection ? 'region' : 'wall', available, state?.wallPosition],
-        ['protocol-attempts', 'attempts', available && injection, state?.attempts],
-        ['protocol-rejection', 'rejection', available && injection,
-            state?.rejected ? `rejected (${state.rejectionCount}); ${state.frameCommitted ? 'retry committed' : 'retrying'}` : 'no'],
+        ['protocol-wall', 'absorbing wall', available, state?.wallPosition],
+        ['protocol-injection', 'injection', available && injection,
+            isProtocolFailureTerminal() || state?.rejected ? 'rejected' : state?.frameCommitted ? 'success' : 'in progress'],
     ];
     for (const [key, label, visible, value] of rows) {
         // Avoid creating hidden protocol nodes on an ordinary page load.
         let row = document.getElementById(`${key}-row`);
-        if (available && !row) row = ensureStateCardRow(`${key}-row`, label, `${key}-value`);
+        if (visible && !row) row = ensureStateCardRow(`${key}-row`, label, `${key}-value`);
         if (!row) continue;
         row.style.display = visible ? 'flex' : 'none';
         if (row.firstElementChild) row.firstElementChild.textContent = `${label}:`;
         if (visible) {
             const target = document.getElementById(`${key}-value`);
             updateStatText(target, value ?? 'pending');
-            if (target) target.style.whiteSpace = 'normal';
+            target?.classList.toggle('state-ok', key === 'protocol-injection' && value === 'success');
+            target?.classList.toggle('state-bad', key === 'protocol-injection' && value === 'rejected');
         }
     }
 }
 
 function startSurgery(kind) {
     if (isNoiseStopped()) return;
-    if (stopForSurgeryFailure()) return;
+    if (stopForProtocolFailure()) return;
     if (!getCurrentDecoderConfig()?.surgery || !currentDecoder) return;
     if (!currentDecoder[kind === 'merge' ? 'canMerge' : 'canSplit']()) return;
     // Keep the previous checkpoint; the next forward step captures the
@@ -3726,8 +3730,8 @@ function updateStatusRow() {
     if (!statusValue || !currentDecoder) return;
     updatePlayButtons();
 
-    const terminalSurgeryFailure = isSurgeryFailureTerminal();
-    const quiescentRun = !terminalSurgeryFailure && advanceRequested && isDecoderQuiescent(currentDecoder);
+    const terminalProtocolFailure = isProtocolFailureTerminal();
+    const quiescentRun = !terminalProtocolFailure && advanceRequested && isDecoderQuiescent(currentDecoder);
     const check = quiescentRun || currentDecoder.logicalDataReady
         ? getRunLogicalCheck(currentDecoder) : { hasError: false };
     const data = logicalDataState(currentDecoder);
@@ -3744,9 +3748,9 @@ function updateStatusRow() {
     statusValue.style.whiteSpace = logicalCheck?.unavailable ? 'normal' : '';
     statusValue.style.minWidth = logicalCheck?.unavailable ? '0' : '';
     let stateClass = '';
-    if (terminalSurgeryFailure) {
+    if (terminalProtocolFailure) {
         currentDecoder.finishRunPresentation?.(animationStepIntervalMs());
-        updateStatText(statusValue, 'failure');
+        updateStatText(statusValue, getProtocolTerminalFailure() === 'rejected' ? 'failed' : 'failure');
         stateClass = 'state-bad';
         statusValue.style.fontWeight = '600';
         statusValue.style.width = '';
@@ -3776,7 +3780,8 @@ function updateStatusRow() {
         statusValue.style.justifySelf = 'end';
     } else {
         updateStatText(statusValue, supportsNoiseStop() && !isManualStreamingRun() && !currentDecoder.isNoiseEnabled()
-            && !isDecoderQuiescent(currentDecoder) ? 'reading out' : isPlaying && playDirection === 'forward' ? 'running' : 'paused');
+            && !isDecoderQuiescent(currentDecoder) ? 'reading out' : isPlaying && playDirection === 'forward' ? 'running'
+                : 'paused');
         statusValue.style.fontWeight = '';
         statusValue.style.width = '';
         statusValue.style.justifySelf = '';
@@ -3847,7 +3852,7 @@ function animationStepIntervalMs() {
 // that isn't actually the terminating one.
 function animate(currentTime) {
     if (!isPlaying || !currentDecoder) return;
-    if (playDirection === 'forward' && stopForSurgeryFailure()) return;
+    if (playDirection === 'forward' && stopForProtocolFailure()) return;
 
     if (!lastAnimationTime) {
         // First frame of this Play session (or the very first ever): no
